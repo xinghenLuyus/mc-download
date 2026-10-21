@@ -4,6 +4,7 @@ import 'package:path/path.dart' as p;
 import '../app_state.dart';
 import '../core/models.dart';
 import '../core/repository.dart';
+import '../core/network.dart';
 import 'common.dart';
 
 class DownloadPage extends StatelessWidget {
@@ -11,12 +12,14 @@ class DownloadPage extends StatelessWidget {
   final String category;
   final String? targetId;
   final VoidCallback onTask;
+  final VoidCallback? onSettings;
   const DownloadPage({
     super.key,
     required this.state,
     required this.category,
     this.targetId,
     required this.onTask,
+    this.onSettings,
   });
   @override
   Widget build(BuildContext context) => category == 'game'
@@ -27,6 +30,7 @@ class DownloadPage extends StatelessWidget {
           kind: category,
           initialTarget: targetId,
           onTask: onTask,
+          onSettings: onSettings,
         );
 }
 
@@ -496,12 +500,14 @@ class ResourceBrowser extends StatefulWidget {
   final String kind;
   final String? initialTarget;
   final VoidCallback onTask;
+  final VoidCallback? onSettings;
   const ResourceBrowser({
     super.key,
     required this.state,
     required this.kind,
     this.initialTarget,
     required this.onTask,
+    this.onSettings,
   });
   @override
   State<ResourceBrowser> createState() => _ResourceBrowserState();
@@ -513,7 +519,7 @@ class _ResourceBrowserState extends State<ResourceBrowser> {
   String provider = 'Modrinth', loader = '';
   String? target;
   List<Json> rows = [];
-  bool loading = false;
+  bool loading = false, configureKey = false;
   String? error;
   int page = 0, generation = 0;
   AppState get s => widget.state;
@@ -543,6 +549,7 @@ class _ResourceBrowserState extends State<ResourceBrowser> {
     setState(() {
       loading = true;
       error = null;
+      configureKey = false;
     });
     try {
       final results = await s.resources.search(
@@ -558,6 +565,7 @@ class _ResourceBrowserState extends State<ResourceBrowser> {
       if (mounted && generation == token) {
         setState(() {
           error = '$e';
+          configureKey = e is CurseForgeAccessException;
           rows = [];
         });
       }
@@ -625,9 +633,15 @@ class _ResourceBrowserState extends State<ResourceBrowser> {
                 width: 150,
                 child: DropdownButtonFormField<String>(
                   initialValue: provider,
+                  isExpanded: true,
                   decoration: const InputDecoration(labelText: '资源平台'),
                   items: ['Modrinth', 'CurseForge']
-                      .map((e) => DropdownMenuItem(value: e, child: Text(e)))
+                      .map(
+                        (e) => DropdownMenuItem(
+                          value: e,
+                          child: Text(e, overflow: TextOverflow.ellipsis),
+                        ),
+                      )
                       .toList(),
                   onChanged: (v) {
                     setState(() {
@@ -722,6 +736,7 @@ class _ResourceBrowserState extends State<ResourceBrowser> {
                 width: 140,
                 child: DropdownButtonFormField<String>(
                   key: ValueKey(loader),
+                  isExpanded: true,
                   initialValue:
                       [
                         '',
@@ -765,8 +780,14 @@ class _ResourceBrowserState extends State<ResourceBrowser> {
                     '资源获取失败',
                     error!,
                     button: OutlinedButton(
-                      onPressed: load,
-                      child: const Text('重试'),
+                      onPressed: configureKey && widget.onSettings != null
+                          ? widget.onSettings
+                          : load,
+                      child: Text(
+                        configureKey && widget.onSettings != null
+                            ? '配置 CurseForge Key'
+                            : '重试',
+                      ),
                     ),
                   )
                 : rows.isEmpty && !loading

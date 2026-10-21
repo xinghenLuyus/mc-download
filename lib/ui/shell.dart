@@ -16,6 +16,7 @@ class AppShell extends StatefulWidget {
 
 class _AppShellState extends State<AppShell> {
   int page = 0;
+  bool focusCurseForge = false;
   String category = 'game';
   String? targetId;
   AppState get s => widget.state;
@@ -95,7 +96,10 @@ class _AppShellState extends State<AppShell> {
                           borderRadius: BorderRadius.circular(8),
                         ),
                       ),
-                      onPressed: () => setState(() => page = index),
+                      onPressed: () => setState(() {
+                        page = index;
+                        focusCurseForge = false;
+                      }),
                       icon: Icon(icon, size: 18),
                       label: Text(label),
                     ),
@@ -328,6 +332,10 @@ class _AppShellState extends State<AppShell> {
                             category: category,
                             targetId: targetId,
                             onTask: () => setState(() => page = 2),
+                            onSettings: () => setState(() {
+                              page = 3;
+                              focusCurseForge = true;
+                            }),
                           ),
                           1 => VersionsPage(
                             state: s,
@@ -335,7 +343,10 @@ class _AppShellState extends State<AppShell> {
                             onTask: () => setState(() => page = 2),
                           ),
                           2 => TasksPage(state: s),
-                          _ => SettingsPage(state: s),
+                          _ => SettingsPage(
+                            state: s,
+                            focusCurseForge: focusCurseForge,
+                          ),
                         },
                       ),
                     ],

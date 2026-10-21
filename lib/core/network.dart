@@ -6,6 +6,18 @@ import 'dart:math';
 import 'package:crypto/crypto.dart';
 import 'models.dart';
 
+bool isCurseForgeEndpoint(Uri uri) =>
+    uri.host == 'api.curseforge.com' ||
+    uri.host == 'forgecdn.net' ||
+    uri.host.endsWith('.forgecdn.net');
+
+class CurseForgeAccessException implements Exception {
+  final String message;
+  const CurseForgeAccessException(this.message);
+  @override
+  String toString() => message;
+}
+
 String safeUrl(String value) {
   final u = Uri.parse(value);
   return u
@@ -56,14 +68,77 @@ class SourcePolicy {
 
 class NetworkService {
   final AppSettings settings;
+  final HttpClient Function() _clientFactory;
   final Map<String, HttpClient> _clients = {};
   final Map<String, ({DateTime time, String proxy})> _systemCache = {};
   final Map<String, Future<String>> _resolving = {};
   final List<String> audit = [];
   final Set<String> _batchJobs = {};
   void Function()? onAudit;
-  NetworkService(this.settings);
+  NetworkService(this.settings, {HttpClient Function()? clientFactory})
+    : _clientFactory = clientFactory ?? HttpClient.new;
   SourcePolicy get sources => SourcePolicy(settings);
+
+  String requireCurseForgeKey() {
+    final key = settings.curseKey.trim();
+    if (key.isEmpty) {
+      throw const CurseForgeAccessException(
+        '请先在“设置 → CurseForge”填写并保存 API Key，再进行 CurseForge 查询或下载；设置页提供申请指引。',
+      );
+    }
+    if (key.contains(RegExp(r'[\r\n]'))) {
+      throw const CurseForgeAccessException(
+        'CurseForge API Key 含有换行，请在设置中重新粘贴完整 Key。',
+      );
+    }
+    return key;
+  }
+
+  void checkCurseForgeUrl(Uri uri) {
+    if (!isCurseForgeEndpoint(uri)) return;
+    requireCurseForgeKey();
+    if (uri.scheme != 'https') {
+      throw const CurseForgeAccessException('CurseForge 查询和下载必须使用 HTTPS 地址。');
+    }
+  }
+
+  Map<String, String> headersForRequest(
+    Uri uri, {
+    required Uri origin,
+    Map<String, String> headers = const {},
+  }) {
+    checkCurseForgeUrl(uri);
+    final sameOrigin =
+        uri.scheme == origin.scheme &&
+        uri.host == origin.host &&
+        uri.port == origin.port;
+    final result = <String, String>{};
+    for (final entry in headers.entries) {
+      final name = entry.key.toLowerCase();
+      if (sameOrigin ||
+          !['x-api-key', 'authorization', 'cookie'].contains(name)) {
+        result[name] = entry.value;
+      }
+    }
+    // Recompute for every redirect and Range request. Never forward the key to
+    // an arbitrary host provided by a resource URL or a redirect response.
+    if (isCurseForgeEndpoint(uri)) result['x-api-key'] = requireCurseForgeKey();
+    return result;
+  }
+
+  void checkCurseForgeStatus(Uri uri, int status) {
+    if (!isCurseForgeEndpoint(uri)) return;
+    if (status == 401) {
+      throw const CurseForgeAccessException(
+        'CurseForge 鉴权失败（401）：API Key 无效、已失效或未获授权，请在设置中检查 Key 并重新验证。',
+      );
+    }
+    if (status == 403) {
+      throw const CurseForgeAccessException(
+        'CurseForge 拒绝访问（403）：请检查 API Key 的权限；作者限制第三方下载的文件需在官网手动获取后导入。',
+      );
+    }
+  }
 
   void record(String message) {
     audit.add(
@@ -147,7 +222,7 @@ class NetworkService {
     final route = await proxyFor(uri);
     final key = '${settings.proxyMode.name}:${settings.proxyUrl}:$route';
     return _clients.putIfAbsent(key, () {
-      final client = HttpClient()
+      final client = _clientFactory()
         ..connectionTimeout = const Duration(seconds: 20)
         ..idleTimeout = const Duration(seconds: 20)
         ..maxConnectionsPerHost = settings.concurrency
@@ -190,23 +265,19 @@ class NetworkService {
         current.userInfo.isNotEmpty) {
       throw FormatException('无效下载地址：${safeUrl(url)}');
     }
-    final originalHost = current.host;
+    final origin = current;
     for (var i = 0; i < 8; i++) {
       job?.check();
+      final requestHeaders = headersForRequest(
+        current,
+        origin: origin,
+        headers: headers,
+      );
       final client = await _client(current);
       job?.check();
       final request = await client.getUrl(current);
       request.followRedirects = false;
-      headers.forEach((name, value) {
-        if (current.host == originalHost ||
-            ![
-              'x-api-key',
-              'authorization',
-              'cookie',
-            ].contains(name.toLowerCase())) {
-          request.headers.set(name, value);
-        }
-      });
+      requestHeaders.forEach(request.headers.set);
       request.headers.set(HttpHeaders.acceptEncodingHeader, 'identity');
       job?.connections.add(request);
       if (job != null) job.currentUrl = safeUrl(current.toString());
@@ -215,6 +286,11 @@ class NetworkService {
         final response = await request.close().timeout(
           const Duration(seconds: 30),
         );
+        if (isCurseForgeEndpoint(current) &&
+            [401, 403].contains(response.statusCode)) {
+          await body(response, job).drain<void>();
+          checkCurseForgeStatus(current, response.statusCode);
+        }
         if ([301, 302, 303, 307, 308].contains(response.statusCode)) {
           final location = response.headers.value('location');
           await body(response, job).drain<void>();
@@ -293,6 +369,7 @@ class NetworkService {
         return decodeJson(await text([url], headers: headers, job: job));
       } catch (e) {
         job?.check();
+        if (e is CurseForgeAccessException) rethrow;
         last = e;
         record('元数据来源失败：${safeUrl(url)}');
       }
@@ -344,6 +421,7 @@ class NetworkService {
           }
         } catch (e) {
           job?.check();
+          if (e is CurseForgeAccessException) rethrow;
           last = e;
         }
       }
@@ -380,6 +458,9 @@ class NetworkService {
 
   Future<void> _download(DownloadFile item, DownloadJob job) async {
     job.check();
+    for (final url in item.urls) {
+      checkCurseForgeUrl(Uri.parse(url));
+    }
     final target = File(item.path);
     if (await validFile(item)) return;
     await target.parent.create(recursive: true);
@@ -483,6 +564,7 @@ class NetworkService {
           }
           active?.abort();
           job.check();
+          if (e is CurseForgeAccessException) rethrow;
           last = e;
           job.log('重试 ${attempt + 1}/3 · ${safeUrl(url)} · $e');
           await Future<void>.delayed(
@@ -500,6 +582,12 @@ class NetworkService {
   }
 
   Future<void> batch(List<DownloadFile> files, DownloadJob job) async {
+    job.check();
+    for (final file in files) {
+      for (final url in file.urls) {
+        checkCurseForgeUrl(Uri.parse(url));
+      }
+    }
     _batchJobs.add(job.id);
     job.currentFileSize = null;
     final unique = {for (final f in files) f.path: f}.values.toList();

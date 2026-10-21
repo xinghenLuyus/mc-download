@@ -16,7 +16,8 @@ jobs:
           cache: true
       - run: flutter pub get
       - run: flutter analyze
-      - run: flutter test --no-pub
+      - name: Run regression tests
+        run: flutter test --no-pub --reporter expanded
       - run: ./scripts/build-windows.ps1 -SkipChecks
         shell: pwsh
       - uses: actions/upload-artifact@v4

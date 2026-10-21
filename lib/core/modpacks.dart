@@ -205,6 +205,25 @@ class ModpackService {
     DownloadJob job,
   ) async {
     final archive = await readZip(info.file);
+    job.check();
+    if (info.format == 'CurseForge' ||
+        (info.format == 'MCBBS' &&
+            asList(
+              info.manifest['files'],
+            ).any((f) => asMap(f)['type'] == 'curse')) ||
+        (info.format == 'Modrinth' &&
+            asList(info.manifest['files']).any(
+              (f) =>
+                  ![
+                    'unsupported',
+                    'optional',
+                  ].contains(asMap(asMap(f)['env'])['client']) &&
+                  asList(
+                    asMap(f)['downloads'],
+                  ).any((url) => isCurseForgeEndpoint(Uri.parse('$url'))),
+            ))) {
+      installer.network.requireCurseForgeKey();
+    }
     final spec = InstallSpec(
       root: root,
       id: id,

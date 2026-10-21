@@ -8,11 +8,12 @@ import 'repository.dart';
 class ResourceService {
   final NetworkService network;
   ResourceService(this.network);
-  Map<String, String> get cfHeaders {
-    if (network.settings.curseKey.trim().isEmpty) {
-      throw StateError('CurseForge 需要 API Key，请在设置中填写自己的 Key；Modrinth 无需 Key');
-    }
-    return {'x-api-key': network.settings.curseKey.trim()};
+  Map<String, String> get cfHeaders => {
+    'x-api-key': network.requireCurseForgeKey(),
+  };
+
+  Future<void> verifyCurseForgeKey() async {
+    await cf('games/432');
   }
 
   Future<Json> cf(String path, {DownloadJob? job}) async => asMap(
@@ -203,6 +204,7 @@ class ResourceService {
   );
 
   DownloadFile downloadFile(Json version, String target) {
+    if (version['provider'] == 'CurseForge') network.requireCurseForgeKey();
     final urls = asList(version['urls']).cast<String>();
     if (urls.isEmpty) {
       throw StateError(

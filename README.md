@@ -11,6 +11,8 @@
 
 当前支持单一主要加载器；组合加载器、自定义补丁及部分历史整合包暂不支持。CurseForge 需要自己的 API Key，Forge / NeoForge / OptiFine 安装需要合适的 Java。
 
+CurseForge 的查询和文件下载均需先在“设置 → CurseForge”保存 Key。设置页提供官方申请说明、开发者控制台、申请步骤及“保存并验证 Key”；没有 Key 时可使用 Modrinth。
+
 ## 开发与构建
 
 Windows 10/11 x64，Flutter 3.47.7，Visual Studio C++ 桌面开发工具链。

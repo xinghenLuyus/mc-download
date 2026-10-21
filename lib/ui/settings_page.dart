@@ -8,12 +8,18 @@ import 'common.dart';
 
 class SettingsPage extends StatefulWidget {
   final AppState state;
-  const SettingsPage({super.key, required this.state});
+  final bool focusCurseForge;
+  const SettingsPage({
+    super.key,
+    required this.state,
+    this.focusCurseForge = false,
+  });
   @override
   State<SettingsPage> createState() => _SettingsPageState();
 }
 
 class _SettingsPageState extends State<SettingsPage> {
+  final curseForgeSection = GlobalKey();
   late final proxy = TextEditingController(
     text: widget.state.settings.proxyUrl,
   );
@@ -29,9 +35,26 @@ class _SettingsPageState extends State<SettingsPage> {
   late bool fallback = widget.state.settings.fallback;
   late bool isolate = widget.state.settings.isolate;
   late double concurrency = widget.state.settings.concurrency.toDouble();
-  bool testing = false;
+  bool testing = false, checkingKey = false, keyVisible = false;
+  String? keyResult;
   final List<String> diagnostics = [];
   AppState get s => widget.state;
+  @override
+  void initState() {
+    super.initState();
+    if (widget.focusCurseForge) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final target = curseForgeSection.currentContext;
+        if (mounted && target != null) {
+          Scrollable.ensureVisible(
+            target,
+            duration: const Duration(milliseconds: 250),
+          );
+        }
+      });
+    }
+  }
+
   @override
   void dispose() {
     proxy.dispose();
@@ -110,6 +133,47 @@ class _SettingsPageState extends State<SettingsPage> {
         }
       } finally {
         if (mounted) setState(() => testing = false);
+      }
+    });
+  }
+
+  Future<void> saveCurseForgeKey({bool verify = false}) async {
+    if (checkingKey) return;
+    await action(context, () async {
+      final value = keyField.text.trim();
+      if (verify && value.isEmpty) {
+        throw const CurseForgeAccessException('请先填写 API Key。申请步骤和官方入口在此区域下方。');
+      }
+      if (value.contains(RegExp(r'[\r\n]'))) {
+        throw const FormatException('API Key 不能包含换行，请重新粘贴完整 Key');
+      }
+      setState(() {
+        checkingKey = true;
+        keyResult = null;
+      });
+      try {
+        s.settings.curseKey = value;
+        await s.save();
+        s.refresh();
+        if (!mounted) return;
+        if (verify) {
+          await s.resources.verifyCurseForgeKey();
+          if (mounted) {
+            setState(
+              () => keyResult = '验证通过：CurseForge API 可以访问。文件下载仍受资源作者的权限设置限制。',
+            );
+          }
+        } else {
+          setState(
+            () => keyResult = value.isEmpty
+                ? '已清除 Key，CurseForge 查询和下载已停用。'
+                : 'Key 已保存，尚未验证。',
+          );
+        }
+      } catch (e) {
+        if (mounted) setState(() => keyResult = '${verify ? '验证' : '保存'}失败：$e');
+      } finally {
+        if (mounted) setState(() => checkingKey = false);
       }
     });
   }
@@ -372,22 +436,94 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
         ]),
         const SizedBox(height: 18),
-        section('CurseForge', '使用你自己的 API Key 访问资源搜索与文件接口。Modrinth 无需配置。', [
-          TextField(
-            controller: keyField,
-            obscureText: true,
-            decoration: const InputDecoration(
-              labelText: 'API Key',
-              helperText: '只保存在本机应用配置中，不上传。作者限制第三方下载时需在官网手动获取。',
+        section('CurseForge', '查询资源和下载文件都需要先填写并保存自己的 API Key。Modrinth 无需 Key。', [
+          KeyedSubtree(
+            key: curseForgeSection,
+            child: TextField(
+              key: const ValueKey('curseforge-api-key'),
+              enabled: !checkingKey,
+              controller: keyField,
+              obscureText: !keyVisible,
+              onChanged: (_) => setState(() => keyResult = null),
+              decoration: InputDecoration(
+                labelText: 'API Key',
+                helperText:
+                    '保存在 .mcdownload/settings.json，仅发送至 CurseForge 官方 API 和文件 CDN。',
+                helperMaxLines: 3,
+                suffixIcon: IconButton(
+                  tooltip: keyVisible ? '隐藏 Key' : '显示 Key',
+                  onPressed: () => setState(() => keyVisible = !keyVisible),
+                  icon: Icon(
+                    keyVisible
+                        ? Icons.visibility_off_outlined
+                        : Icons.visibility_outlined,
+                  ),
+                ),
+              ),
             ),
           ),
-          const SizedBox(height: 10),
-          TextButton(
-            onPressed: () => action(
-              context,
-              () => openWeb('https://console.curseforge.com/'),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              OutlinedButton(
+                onPressed: checkingKey ? null : () => saveCurseForgeKey(),
+                child: const Text('保存 Key'),
+              ),
+              FilledButton(
+                onPressed: checkingKey
+                    ? null
+                    : () => saveCurseForgeKey(verify: true),
+                child: Text(checkingKey ? '请稍候…' : '保存并验证 Key'),
+              ),
+            ],
+          ),
+          if (keyResult != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: InfoStrip(keyResult!),
             ),
-            child: const Text('前往 CurseForge 开发者平台'),
+          const SizedBox(height: 8),
+          const Text(
+            '验证使用已保存的代理设置。若更改了代理，请先点击页面顶部“保存设置”。',
+            style: TextStyle(fontSize: 11),
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            '如何申请 API Key',
+            style: TextStyle(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            '1. 打开下方“官方申请说明”，进入 How to Apply for an API Key，按页面链接填写第三方开发者申请表。\n2. 准备联系邮箱、项目名称和说明、项目 / GitHub 地址，以及预计如何使用 API；按官方要求确认开发者条款并提交审核。\n3. 审核通过后，按通知或开发者控制台指引获取完整 API Key。Key 不是账号密码，也不是 Mod / 文件 ID；提交申请不会立即获得 Key。\n4. 将 Key 粘贴到上方，点击“保存并验证 Key”；验证通过后返回下载页重新查询。',
+            style: TextStyle(fontSize: 12, height: 1.8),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              TextButton(
+                onPressed: () => action(
+                  context,
+                  () => openWeb(
+                    'https://support.curseforge.com/support/solutions/articles/9000208346-about-the-curseforge-api-and-how-to-apply-for-a-key',
+                  ),
+                ),
+                child: const Text('官方申请说明'),
+              ),
+              TextButton(
+                onPressed: () => action(
+                  context,
+                  () => openWeb('https://console.curseforge.com/'),
+                ),
+                child: const Text('开发者控制台'),
+              ),
+            ],
+          ),
+          const InfoStrip(
+            '未获批或没有 Key 时可使用 Modrinth。Key 无效或权限不足会明确报错；作者禁止第三方下载的文件仍需在官网手动下载后导入。',
           ),
         ]),
         const SizedBox(height: 18),

@@ -25,13 +25,14 @@ class AppState extends ChangeNotifier {
   String? persistenceError;
   String? recoveryNotice;
   int discoveredAtStartup = 0;
-  final discovery = GameDirectoryDiscovery();
+  final GameDirectoryDiscovery discovery;
   String? runningId;
   Timer? _notifyTimer, _saveTimer;
   Future<void> _saving = Future.value();
   bool _disposed = false;
   int _scanGeneration = 0;
-  AppState(this.dataPath);
+  AppState(this.dataPath, {GameDirectoryDiscovery? discovery})
+    : discovery = discovery ?? GameDirectoryDiscovery();
 
   Future<void> initialize({bool remote = true}) async {
     await Directory(dataPath).create(recursive: true);
