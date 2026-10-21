@@ -1,4 +1,4 @@
-param([switch]$SkipChecks, [string]$Version = 'dev', [switch]$DefenderScan)
+param([switch]$SkipChecks, [string]$Version = 'dev')
 $ErrorActionPreference = 'Stop'
 Set-Location (Join-Path $PSScriptRoot '..')
 $versionInfo = & (Join-Path $PSScriptRoot 'build-version.ps1') -Version $Version
@@ -30,13 +30,7 @@ foreach ($dll in 'msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll') {
     Copy-Item (Join-Path $crt.FullName $dll) -Destination $release
 }
 Copy-Item LICENSE, README.md -Destination $release
-if ($DefenderScan) {
-    & (Join-Path $PSScriptRoot 'test-defender.ps1') -Path $release -ReportFile (Join-Path $PWD 'orther\cache\defender\runtime.json')
-}
 $output = Join-Path $PWD "orther\releases\MC Download $($versionInfo.Label).exe"
 & (Join-Path $PSScriptRoot 'package-portable.ps1') -RuntimeDirectory $release -OutputFile $output -Version $versionInfo.Label
-if ($DefenderScan) {
-    & (Join-Path $PSScriptRoot 'test-defender.ps1') -Path $output -ReportFile (Join-Path $PWD 'orther\cache\defender\portable.json')
-}
 & (Join-Path $PSScriptRoot 'clean-workspace.ps1')
 Write-Host "Built: $output"

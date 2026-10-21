@@ -264,6 +264,9 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
         TRUE, 0, nullptr, runtime.c_str(), &startup, &process) != FALSE,
         "Cannot start MC Download. Try deleting .mcdownload/runtime and launch again.");
     Handle child(process.hProcess), thread(process.hThread);
+    // Once the new child has started, discard unused older runtimes immediately.
+    // Keep the exit-time pass for versions still in use during this first pass.
+    try { Handle lock(Lock(cache)); Clean(cache, runtime); } catch (...) { /* cleanup is optional */ }
     WaitForSingleObject(child.get(), INFINITE);
     DWORD code = EXIT_FAILURE;
     GetExitCodeProcess(child.get(), &code);

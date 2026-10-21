@@ -6,6 +6,7 @@ import 'dart:math';
 import 'package:crypto/crypto.dart';
 import 'models.dart';
 import 'app_version.dart';
+import 'system_proxy.dart';
 
 bool isCurseForgeEndpoint(Uri uri) =>
     uri.host == 'api.curseforge.com' ||
@@ -70,14 +71,19 @@ class SourcePolicy {
 class NetworkService {
   final AppSettings settings;
   final HttpClient Function() _clientFactory;
+  final Future<SystemProxyResult> Function(Uri) _systemProxy;
   final Map<String, HttpClient> _clients = {};
   final Map<String, ({DateTime time, String proxy})> _systemCache = {};
   final Map<String, Future<String>> _resolving = {};
   final List<String> audit = [];
   final Set<String> _batchJobs = {};
   void Function()? onAudit;
-  NetworkService(this.settings, {HttpClient Function()? clientFactory})
-    : _clientFactory = clientFactory ?? HttpClient.new;
+  NetworkService(
+    this.settings, {
+    HttpClient Function()? clientFactory,
+    Future<SystemProxyResult> Function(Uri)? systemProxyResolver,
+  }) : _clientFactory = clientFactory ?? HttpClient.new,
+       _systemProxy = systemProxyResolver ?? resolveSystemProxy;
   SourcePolicy get sources => SourcePolicy(settings);
 
   String requireCurseForgeKey() {
@@ -162,46 +168,23 @@ class NetworkService {
       }
       return 'PROXY ${proxy.host}:${proxy.port}';
     }
-    final key = '${uri.scheme}://${uri.host}:${uri.port}';
-    final old = _systemCache[key];
+    final origin = '${uri.scheme}://${uri.host}:${uri.port}';
+    final key = uri.replace(fragment: '').toString();
+    final old = _systemCache[key] ?? _systemCache[origin];
     if (old != null && DateTime.now().difference(old.time).inSeconds < 120) {
       return old.proxy;
     }
     return _resolving.putIfAbsent(key, () async {
       try {
-        String result = 'DIRECT';
-        if (Platform.isWindows) {
-          // .NET resolves Windows Internet Options, including PAC and bypass rules.
-          // The URL is passed through an environment variable, never interpolated as code.
-          final resolved = await Process.run(
-            'powershell.exe',
-            [
-              '-NoProfile',
-              '-NonInteractive',
-              '-Command',
-              r'$ErrorActionPreference="Stop"; $u=[Uri]$env:MC_PROXY_TARGET; $p=[System.Net.WebRequest]::GetSystemWebProxy(); if($p.IsBypassed($u)){"DIRECT"}else{$r=$p.GetProxy($u); if($r -eq $u){"DIRECT"}else{"PROXY " + $r.Host + ":" + $r.Port}}',
-            ],
-            environment: {'MC_PROXY_TARGET': uri.toString()},
-          ).timeout(const Duration(seconds: 20));
-          if (resolved.exitCode != 0) {
-            throw const HttpException('读取 Windows 系统代理失败，请选择直连或手动代理');
-          }
-          result = resolved.stdout.toString().trim();
-          if (!RegExp(r'^(DIRECT|PROXY [^\s]+:\d+)$').hasMatch(result)) {
-            throw const HttpException('系统代理返回了无法识别的结果');
-          }
-        } else {
-          // Development probes on macOS; the shipped application targets Windows.
-          final raw =
-              Platform.environment['HTTPS_PROXY'] ??
-              Platform.environment['https_proxy'];
-          if (raw != null) {
-            final u = Uri.parse(raw);
-            if (u.scheme == 'http') result = 'PROXY ${u.host}:${u.port}';
-          }
+        final result = await _systemProxy(uri);
+        if (_systemCache.length >= 256) {
+          _systemCache.remove(_systemCache.keys.first);
         }
-        _systemCache[key] = (time: DateTime.now(), proxy: result);
-        return result;
+        _systemCache[result.perUrl ? key : origin] = (
+          time: DateTime.now(),
+          proxy: result.route,
+        );
+        return result.route;
       } finally {
         _resolving.remove(key);
       }
@@ -227,7 +210,8 @@ class NetworkService {
         ..connectionTimeout = const Duration(seconds: 20)
         ..idleTimeout = const Duration(seconds: 20)
         ..maxConnectionsPerHost = settings.concurrency
-        ..userAgent = 'MC-Download/$appVersion (Windows; Minecraft folder manager)'
+        ..userAgent =
+            'MC-Download/$appVersion (Windows; Minecraft folder manager)'
         ..findProxy = (_) => route;
       if (settings.proxyMode == ProxyMode.manual) {
         final proxy = Uri.parse(settings.proxyUrl);

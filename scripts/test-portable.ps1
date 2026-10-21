@@ -81,6 +81,16 @@ $updated = Join-Path $distribution 'MC Download updated.exe'
 $versionTwo = [Diagnostics.FileVersionInfo]::GetVersionInfo($updated)
 Assert-True ($versionTwo.ProductVersion -eq '0.2.0-rc.1') 'Portable prerelease label was lost.'
 Assert-True ($versionTwo.FileMinorPart -eq 2) 'Portable prerelease numeric version was lost.'
+$startupReport = Join-Path $scenario 'new startup.txt'
+$startup = Start-Portable $updated $startupReport 4000
+Await-Report $startupReport
+$cleanupLimit = [DateTime]::UtcNow.AddSeconds(10)
+while ((Test-Path -LiteralPath $runtime) -and -not $startup.HasExited -and [DateTime]::UtcNow -lt $cleanupLimit) {
+    Start-Sleep -Milliseconds 50
+}
+Assert-True (-not $startup.HasExited) 'Startup cleanup was delayed until application exit.'
+Assert-True (-not (Test-Path -LiteralPath $runtime)) 'Unused old runtime survived new-version startup.'
+Wait-Portable $startup
 $oldReport = Join-Path $scenario 'old active.txt'
 $old = Start-Portable $launcher $oldReport 2000
 Await-Report $oldReport
@@ -101,4 +111,4 @@ Copy-Item -LiteralPath $updated -Destination $moved
 $movedReport = Join-Path $scenario 'moved.txt'
 Wait-Portable (Start-Portable $moved $movedReport 0 7) 7
 Assert-True ((Read-Report $movedReport)[0] -eq (Join-Path $relocated '.mcdownload')) 'Relocated EXE kept the previous data directory.'
-Write-Host 'Portable launcher checks passed: first run, Unicode paths, arguments, reuse, repair, interrupted extraction, concurrent launches, update, data preservation, relocation, exit code.'
+Write-Host 'Portable launcher checks passed: first run, Unicode paths, arguments, reuse, repair, interrupted extraction, concurrent launches, startup cleanup, active-version protection, update, data preservation, relocation, exit code.'
