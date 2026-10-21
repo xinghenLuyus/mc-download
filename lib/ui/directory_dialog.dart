@@ -1,8 +1,10 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
+
 import '../app_state.dart';
 import '../core/discovery.dart';
+import '../core/repository.dart';
 
 class DirectoryImportDialog extends StatefulWidget {
   final AppState state;
@@ -111,12 +113,24 @@ class _DirectoryImportDialogState extends State<DirectoryImportDialog> {
   Future<void> direct() async {
     try {
       final path = await FilePicker.platform.getDirectoryPath(
-        dialogTitle: '直接选择游戏根目录（可选择新建的空文件夹）',
+        dialogTitle: '选择已有游戏目录（也可选择空文件夹）',
       );
       if (path != null && mounted) await import([path]);
     } catch (e) {
       if (mounted) setState(() => error = '$e');
     }
+  }
+
+  Future<void> create() async {
+    final root = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => NewGameDirectoryDialog(
+        state: state,
+        initialParent: selectedFolder ?? p.dirname(state.dataPath),
+      ),
+    );
+    if (root != null && mounted) Navigator.pop(context);
   }
 
   @override
@@ -229,10 +243,20 @@ class _DirectoryImportDialogState extends State<DirectoryImportDialog> {
                     },
                   ),
           ),
-          TextButton.icon(
-            onPressed: loading ? null : direct,
-            icon: const Icon(Icons.create_new_folder_outlined, size: 18),
-            label: const Text('直接选择游戏目录 / 新建空目录'),
+          Wrap(
+            spacing: 8,
+            children: [
+              TextButton.icon(
+                onPressed: loading ? null : direct,
+                icon: const Icon(Icons.folder_open, size: 18),
+                label: const Text('直接选择游戏目录'),
+              ),
+              TextButton.icon(
+                onPressed: loading ? null : create,
+                icon: const Icon(Icons.create_new_folder_outlined, size: 18),
+                label: const Text('新建空目录'),
+              ),
+            ],
           ),
         ],
       ),
@@ -256,5 +280,152 @@ class _DirectoryImportDialogState extends State<DirectoryImportDialog> {
         child: Text('导入选中（${selected.length}）'),
       ),
     ],
+  );
+}
+
+class NewGameDirectoryDialog extends StatefulWidget {
+  final AppState state;
+  final String initialParent;
+  const NewGameDirectoryDialog({
+    super.key,
+    required this.state,
+    required this.initialParent,
+  });
+  @override
+  State<NewGameDirectoryDialog> createState() => _NewGameDirectoryDialogState();
+}
+
+class _NewGameDirectoryDialogState extends State<NewGameDirectoryDialog> {
+  final form = GlobalKey<FormState>();
+  late final parent = TextEditingController(text: widget.initialParent);
+  final name = TextEditingController(text: '.minecraft');
+  bool busy = false;
+  String? error;
+  @override
+  void dispose() {
+    parent.dispose();
+    name.dispose();
+    super.dispose();
+  }
+
+  Future<void> chooseParent() async {
+    try {
+      final selected = await FilePicker.platform.getDirectoryPath(
+        dialogTitle: '选择新游戏目录的父文件夹',
+      );
+      if (selected != null && mounted) setState(() => parent.text = selected);
+    } catch (e) {
+      if (mounted) setState(() => error = '$e');
+    }
+  }
+
+  Future<void> submit() async {
+    if (busy || !form.currentState!.validate()) return;
+    setState(() {
+      busy = true;
+      error = null;
+    });
+    try {
+      final root = await widget.state.createRoot(parent.text.trim(), name.text);
+      if (mounted) Navigator.pop(context, root);
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          busy = false;
+          error = '无法创建目录：$e';
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => PopScope(
+    canPop: !busy,
+    child: AlertDialog(
+      title: const Text('新建空目录'),
+      content: SizedBox(
+        width: 560,
+        child: SingleChildScrollView(
+          child: Form(
+            key: form,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextFormField(
+                  controller: parent,
+                  enabled: !busy,
+                  onChanged: (_) => setState(() {}),
+                  validator: (value) =>
+                      value == null || !p.isAbsolute(value.trim())
+                      ? '请输入绝对路径，或选择父文件夹'
+                      : null,
+                  decoration: InputDecoration(
+                    labelText: '父目录',
+                    suffixIcon: IconButton(
+                      tooltip: '选择父目录',
+                      onPressed: busy ? null : chooseParent,
+                      icon: const Icon(Icons.folder_open),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: name,
+                  enabled: !busy,
+                  autofocus: true,
+                  onChanged: (_) => setState(() {}),
+                  onFieldSubmitted: (_) => submit(),
+                  validator: (value) {
+                    try {
+                      validateId(value ?? '', label: '文件夹名称');
+                      return null;
+                    } on FormatException catch (e) {
+                      return e.message;
+                    }
+                  },
+                  decoration: const InputDecoration(labelText: '文件夹名称'),
+                ),
+                const SizedBox(height: 14),
+                SelectableText(
+                  '创建位置：${p.join(parent.text.trim(), name.text)}',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  '创建后自动选为游戏目录，游戏文件将在安装时下载到这里。',
+                  style: TextStyle(fontSize: 12),
+                ),
+                if (busy)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 12),
+                    child: LinearProgressIndicator(),
+                  ),
+                if (error != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Text(
+                      error!,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: busy ? null : () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: busy ? null : submit,
+          child: const Text('创建并使用'),
+        ),
+      ],
+    ),
   );
 }

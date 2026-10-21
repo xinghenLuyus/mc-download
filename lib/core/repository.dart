@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
+
 import 'package:path/path.dart' as p;
+
 import 'models.dart';
 import 'version_metadata.dart';
 
@@ -35,7 +37,7 @@ String safeChild(String root, String relative) {
   return target;
 }
 
-void validateId(String id) {
+void validateId(String id, {String label = '版本名称'}) {
   if (id.isEmpty ||
       id.length > 120 ||
       id != id.trim() ||
@@ -46,7 +48,7 @@ void validateId(String id) {
         caseSensitive: false,
       ).hasMatch(id) ||
       id == '..') {
-    throw const FormatException('版本名称不符合 Windows 文件夹命名规则');
+    throw FormatException('$label不符合 Windows 文件夹命名规则');
   }
 }
 
@@ -477,9 +479,8 @@ class GameRepository {
     if (previous != id) await file.delete();
     await writeJson(p.join(stage, '$id.json'), json);
     if (previous != id && await File(p.join(stage, '$previous.jar')).exists()) {
-      await File(
-        p.join(stage, '$previous.jar'),
-      ).rename(p.join(stage, '$id.jar'));
+      await File(p.join(stage, '$previous.jar'))
+          .rename(p.join(stage, '$id.jar'));
     }
     final meta = File(p.join(stage, 'mcd.json'));
     if (await meta.exists()) {

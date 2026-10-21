@@ -1,6 +1,7 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
+
 import '../app_state.dart';
 import '../core/models.dart';
 import '../core/repository.dart';
@@ -176,9 +177,8 @@ class _GameDownloadViewState extends State<GameDownloadView> {
                             width: 36,
                             height: 36,
                             decoration: BoxDecoration(
-                              color: Theme.of(
-                                context,
-                              ).colorScheme.primary.withValues(alpha: .07),
+                              color: Theme.of(context).colorScheme.primary
+                                  .withValues(alpha: .07),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Icon(
@@ -252,8 +252,8 @@ Future<void> showInstall(
   VoidCallback onTask,
 ) async {
   if (state.settings.selectedRoot == null) {
-    message(context, '请先添加游戏目录');
-    return;
+    await addRoot(context, state);
+    if (!context.mounted || state.settings.selectedRoot == null) return;
   }
   final queued = await showDialog<bool>(
     context: context,
@@ -282,7 +282,7 @@ class _InstallDialogState extends State<InstallDialog> {
     text: widget.existing?.id ?? game,
   );
   late bool isolate = widget.existing == null
-      ? widget.state.settings.isolate
+      ? widget.state.settings.isolationFor(widget.state.requireRoot())
       : widget.existing!.contentPath == widget.existing!.path;
   String loader = '', selected = '';
   List<Json> loaders = [];
@@ -821,9 +821,8 @@ class _ResourceBrowserState extends State<ResourceBrowser> {
                             width: 40,
                             height: 40,
                             decoration: BoxDecoration(
-                              color: Theme.of(
-                                context,
-                              ).colorScheme.primary.withValues(alpha: .08),
+                              color: Theme.of(context).colorScheme.primary
+                                  .withValues(alpha: .08),
                               borderRadius: BorderRadius.circular(10),
                             ),
                             child: Icon(

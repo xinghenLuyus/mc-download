@@ -1,7 +1,9 @@
 import 'dart:io';
 import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
+
 import '../core/archive_drop.dart';
 import '../core/app_version.dart';
 import 'import_flow.dart';
@@ -12,6 +14,7 @@ import 'download_page.dart';
 import 'versions_page.dart';
 import 'tasks_page.dart';
 import 'settings_page.dart';
+import 'directories_page.dart';
 
 class AppShell extends StatefulWidget {
   final AppState state;
@@ -88,6 +91,11 @@ class _AppShellState extends State<AppShell> {
     category = kind;
     page = 0;
   });
+  void installFirst() => setState(() {
+    page = 0;
+    category = 'game';
+    targetId = null;
+  });
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
@@ -130,6 +138,7 @@ class _AppShellState extends State<AppShell> {
                     active == 0 ? '任务' : '任务 · $active',
                     Icons.list_alt_outlined,
                   ),
+                  (4, '目录管理', Icons.folder_copy_outlined),
                   (3, '设置', Icons.tune),
                 ])
                   Padding(
@@ -179,7 +188,7 @@ class _AppShellState extends State<AppShell> {
           Expanded(
             child: Row(
               children: [
-                if (page != 1)
+                if (page != 1 && page != 4)
                   SizedBox(
                     width: 164,
                     child: Material(
@@ -285,7 +294,7 @@ class _AppShellState extends State<AppShell> {
                       ),
                     ),
                   ),
-                if (page != 1) const VerticalDivider(width: 1),
+                if (page != 1 && page != 4) const VerticalDivider(width: 1),
                 Expanded(
                   child: Column(
                     children: [
@@ -303,7 +312,7 @@ class _AppShellState extends State<AppShell> {
                             Expanded(
                               child: s.settings.roots.isEmpty
                                   ? const Text(
-                                      '尚未选择游戏目录',
+                                      '请选择或新建游戏目录',
                                       style: TextStyle(fontSize: 12),
                                     )
                                   : DropdownButtonHideUnderline(
@@ -337,7 +346,15 @@ class _AppShellState extends State<AppShell> {
                                       ),
                                     ),
                             ),
-                            const SizedBox(width: 16),
+                            IconButton(
+                              tooltip: '管理游戏目录',
+                              onPressed: () => setState(() => page = 4),
+                              icon: const Icon(
+                                Icons.folder_copy_outlined,
+                                size: 18,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
                             TextButton.icon(
                               onPressed: () => addRoot(context, s),
                               icon: const Icon(Icons.add, size: 16),
@@ -395,12 +412,19 @@ class _AppShellState extends State<AppShell> {
                           1 => VersionsPage(
                             state: s,
                             onBrowse: browse,
+                            onInstallFirst: installFirst,
+                            onManageRoot: () => setState(() => page = 4),
                             onTask: () => setState(() => page = 2),
                           ),
                           2 => TasksPage(state: s),
+                          4 => DirectoriesPage(
+                            state: s,
+                            onInstall: installFirst,
+                          ),
                           _ => SettingsPage(
                             state: s,
                             focusCurseForge: focusCurseForge,
+                            onManageRoots: () => setState(() => page = 4),
                           ),
                         },
                       ),

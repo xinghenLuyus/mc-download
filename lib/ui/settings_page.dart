@@ -1,5 +1,6 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+
 import '../app_state.dart';
 import '../core/app_version.dart';
 import '../core/models.dart';
@@ -10,10 +11,12 @@ import 'common.dart';
 class SettingsPage extends StatefulWidget {
   final AppState state;
   final bool focusCurseForge;
+  final VoidCallback? onManageRoots;
   const SettingsPage({
     super.key,
     required this.state,
     this.focusCurseForge = false,
+    this.onManageRoots,
   });
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -379,6 +382,10 @@ class _SettingsPageState extends State<SettingsPage> {
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             title: const Text('新版本默认开启版本隔离', style: TextStyle(fontSize: 13)),
+            subtitle: const Text(
+              '全局默认值，可在目录管理中单独设置；不改变已有版本。',
+              style: TextStyle(fontSize: 11),
+            ),
             value: isolate,
             onChanged: (v) => setState(() => isolate = v),
           ),
@@ -598,31 +605,10 @@ class _SettingsPageState extends State<SettingsPage> {
               s.changed();
             },
           ),
-          for (final root in s.settings.roots)
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.folder_outlined),
-              title: Text(root, style: const TextStyle(fontSize: 12)),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  IconButton(
-                    tooltip: '打开目录',
-                    onPressed: () => action(context, () => openFolder(root)),
-                    icon: const Icon(Icons.open_in_new, size: 18),
-                  ),
-                  IconButton(
-                    tooltip: '移除记录',
-                    onPressed: () => action(context, () => s.removeRoot(root)),
-                    icon: const Icon(Icons.link_off, size: 18),
-                  ),
-                ],
-              ),
-            ),
           TextButton.icon(
-            onPressed: () => addRoot(context, s),
-            icon: const Icon(Icons.add, size: 18),
-            label: const Text('添加游戏目录'),
+            onPressed: widget.onManageRoots ?? () => addRoot(context, s),
+            icon: const Icon(Icons.folder_copy_outlined, size: 18),
+            label: const Text('管理游戏目录'),
           ),
         ]),
         const SizedBox(height: 18),

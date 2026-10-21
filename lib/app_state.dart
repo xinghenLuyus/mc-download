@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
+
 import 'core/models.dart';
 import 'core/network.dart';
 import 'core/repository.dart';
@@ -96,18 +98,18 @@ class AppState extends ChangeNotifier {
     try {
       if (await tasksFile.exists()) {
         final data = decodeJson(await tasksFile.readAsString());
-        jobs = asList(
-          data is Map ? data['tasks'] : data,
-        ).map((e) => DownloadJob.fromJson(asMap(e))).toList();
+        jobs = asList(data is Map ? data['tasks'] : data)
+            .map((e) => DownloadJob.fromJson(asMap(e)))
+            .toList();
       }
     } catch (_) {
       try {
         final data = asMap(
           decodeJson(await File('${tasksFile.path}.bak').readAsString()),
         );
-        jobs = asList(
-          data['tasks'],
-        ).map((e) => DownloadJob.fromJson(asMap(e))).toList();
+        jobs = asList(data['tasks'])
+            .map((e) => DownloadJob.fromJson(asMap(e)))
+            .toList();
         recoveryNotice = '${recoveryNotice ?? ''} 任务文件损坏，已从备份恢复。'.trim();
       } catch (_) {
         recoveryNotice = '${recoveryNotice ?? ''} 任务文件无法读取，原文件已保留。'.trim();
@@ -228,9 +230,28 @@ class AppState extends ChangeNotifier {
     await addRoots([path]);
   }
 
+  Future<String> createRoot(String parent, String name) async {
+    validateId(name, label: '文件夹名称');
+    if (!p.isAbsolute(parent) || !await Directory(parent).exists()) {
+      throw const FileSystemException('请选择已存在的父目录');
+    }
+    final base = await Directory(parent).resolveSymbolicLinks();
+    final target = safeChild(base, name);
+    if (await FileSystemEntity.type(target, followLinks: false) !=
+        FileSystemEntityType.notFound) {
+      throw const FileSystemException('同名文件或目录已存在，请更换名称，或直接选择已有目录');
+    }
+    await Directory(target).create();
+    await addRoot(target);
+    return settings.selectedRoot!;
+  }
+
   Future<void> addRoots(Iterable<String> paths) async {
     final verified = <String>[];
     for (var path in paths) {
+      if (path.trim().isEmpty || !p.isAbsolute(path)) {
+        throw const FormatException('请选择绝对路径的游戏目录');
+      }
       path = p.normalize(p.absolute(path));
       if (await Directory(path).exists()) {
         path = await Directory(path).resolveSymbolicLinks();
@@ -243,9 +264,18 @@ class AppState extends ChangeNotifier {
                 Platform.environment['USERPROFILE'],
               ].whereType<String>().any((v) => p.equals(v, path)));
       if (unsafe) throw StateError('请选择专门存放游戏的文件夹');
+      safeChild(p.rootPrefix(path), p.relative(path, from: p.rootPrefix(path)));
+      if (await FileSystemEntity.type(path) == FileSystemEntityType.file) {
+        throw const FileSystemException('所选路径是文件，请选择文件夹');
+      }
+      await Directory(path).create(recursive: true);
+      path = await Directory(path).resolveSymbolicLinks();
       verified.add(path);
     }
     if (verified.isEmpty) return;
+    final previousRoots = List<String>.of(settings.roots);
+    final previousDismissed = List<String>.of(settings.dismissedRoots);
+    final previousSelection = settings.selectedRoot;
     final imported = <String>[];
     for (final path in verified) {
       final key = discovery.identity(path);
@@ -257,7 +287,14 @@ class AppState extends ChangeNotifier {
       imported.add(existing ?? path);
     }
     settings.selectedRoot = imported.first;
-    await save();
+    try {
+      await save();
+    } catch (_) {
+      settings.roots = previousRoots;
+      settings.dismissedRoots = previousDismissed;
+      settings.selectedRoot = previousSelection;
+      rethrow;
+    }
     await scan();
   }
 
@@ -267,12 +304,34 @@ class AppState extends ChangeNotifier {
     await scan();
   }
 
+  Future<void> setRootIsolation(String root, bool? isolate) async {
+    if (!settings.roots.contains(root)) throw StateError('请先添加游戏目录');
+    final previous = settings.rootIsolation[root];
+    if (isolate == null) {
+      settings.rootIsolation.remove(root);
+    } else {
+      settings.rootIsolation[root] = isolate;
+    }
+    try {
+      await save();
+    } catch (_) {
+      if (previous == null) {
+        settings.rootIsolation.remove(root);
+      } else {
+        settings.rootIsolation[root] = previous;
+      }
+      rethrow;
+    }
+    refresh();
+  }
+
   Future<void> removeRoot(String root) async {
     final key = discovery.identity(root);
     if (!settings.dismissedRoots.contains(key)) {
       settings.dismissedRoots.add(key);
     }
     settings.roots.remove(root);
+    settings.rootIsolation.remove(root);
     if (settings.selectedRoot == root) {
       settings.selectedRoot = settings.roots.firstOrNull;
     }

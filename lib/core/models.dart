@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+
 import 'package:path/path.dart' as p;
 
 typedef Json = Map<String, dynamic>;
@@ -32,7 +33,10 @@ class AppSettings {
   String curseKey = '';
   String arch = 'x64';
   bool isolate = true;
+  Map<String, bool> rootIsolation = {};
   bool dark = false;
+
+  bool isolationFor(String root) => rootIsolation[root] ?? isolate;
 
   AppSettings();
   AppSettings.fromJson(Json j) {
@@ -55,6 +59,10 @@ class AppSettings {
     curseKey = j['curseKey'] ?? '';
     arch = j['arch'] ?? arch;
     isolate = j['isolate'] != false;
+    rootIsolation = {
+      for (final entry in asMap(j['rootIsolation']).entries)
+        if (entry.value is bool) entry.key: entry.value as bool,
+    };
     dark = j['dark'] == true;
   }
   Json toJson() => {
@@ -72,6 +80,7 @@ class AppSettings {
     'curseKey': curseKey,
     'arch': arch,
     'isolate': isolate,
+    'rootIsolation': rootIsolation,
     'dark': dark,
   };
 }

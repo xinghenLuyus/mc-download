@@ -1,6 +1,7 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
+
 import '../app_state.dart';
 import '../core/models.dart';
 import '../core/repository.dart';
@@ -11,11 +12,14 @@ class VersionsPage extends StatefulWidget {
   final AppState state;
   final void Function(LocalVersion, String) onBrowse;
   final VoidCallback onTask;
+  final VoidCallback? onInstallFirst, onManageRoot;
   const VersionsPage({
     super.key,
     required this.state,
     required this.onBrowse,
     required this.onTask,
+    this.onInstallFirst,
+    this.onManageRoot,
   });
   @override
   State<VersionsPage> createState() => _VersionsPageState();
@@ -79,12 +83,31 @@ class _VersionsPageState extends State<VersionsPage> {
           Expanded(
             child: s.localVersions.isEmpty
                 ? EmptyState(
-                    '还没有游戏版本',
-                    '添加已有的 .minecraft 目录，或从下载页安装一个版本。',
-                    button: OutlinedButton.icon(
-                      onPressed: () => addRoot(context, s),
-                      icon: const Icon(Icons.add),
-                      label: const Text('添加游戏目录'),
+                    s.settings.selectedRoot == null ? '尚未添加游戏目录' : '当前目录尚未安装游戏',
+                    s.settings.selectedRoot == null
+                        ? '新建空目录或添加已有目录，然后选择要安装的版本。'
+                        : '空目录可以直接使用。安装第一个版本后，即可在这里管理游戏和模组。',
+                    button: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      alignment: WrapAlignment.center,
+                      children: [
+                        if (s.settings.selectedRoot != null &&
+                            widget.onInstallFirst != null)
+                          FilledButton.icon(
+                            onPressed: widget.onInstallFirst,
+                            icon: const Icon(Icons.download_outlined),
+                            label: const Text('安装第一个版本'),
+                          ),
+                        OutlinedButton.icon(
+                          onPressed:
+                              widget.onManageRoot ?? () => addRoot(context, s),
+                          icon: const Icon(Icons.folder_outlined),
+                          label: Text(
+                            widget.onManageRoot == null ? '添加游戏目录' : '管理游戏目录',
+                          ),
+                        ),
+                      ],
                     ),
                   )
                 : Row(
@@ -106,9 +129,9 @@ class _VersionsPageState extends State<VersionsPage> {
                                       Expanded(
                                         child: Text(
                                           '已安装版本 · ${s.localVersions.length}',
-                                          style: Theme.of(
-                                            context,
-                                          ).textTheme.titleSmall,
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .titleSmall,
                                         ),
                                       ),
                                       IconButton(
@@ -589,9 +612,8 @@ class _VersionDetailState extends State<VersionDetail> {
                   child: TextButton(
                     style: TextButton.styleFrom(
                       backgroundColor: category == entry.key
-                          ? Theme.of(
-                              context,
-                            ).colorScheme.primary.withValues(alpha: .1)
+                          ? Theme.of(context).colorScheme.primary
+                                .withValues(alpha: .1)
                           : null,
                       minimumSize: const Size(64, 36),
                     ),
@@ -746,9 +768,9 @@ class _VersionDetailState extends State<VersionDetail> {
                                   style: TextStyle(
                                     fontSize: 12,
                                     color: file['disabled']
-                                        ? Theme.of(
-                                            context,
-                                          ).colorScheme.onSurfaceVariant
+                                        ? Theme.of(context)
+                                              .colorScheme
+                                              .onSurfaceVariant
                                         : null,
                                   ),
                                 ),
