@@ -4,6 +4,7 @@ import 'package:path/path.dart' as p;
 import 'package:mc_download/core/discovery.dart';
 import 'package:mc_download/core/repository.dart';
 import 'package:mc_download/core/platform_support.dart';
+import 'package:mc_download/app_state.dart';
 
 void main() {
   late Directory temp;
@@ -28,6 +29,115 @@ void main() {
       );
       await root.delete();
       expect(await discovery.defaults(), isEmpty);
+    },
+  );
+
+  test(
+    'first launch prefers the outer EXE sibling game root over AppData',
+    () async {
+      final launcher = Directory(p.join(temp.path, 'HMCL'));
+      final nearby = Directory(p.join(launcher.path, '.minecraft'));
+      final roaming = p.join(temp.path, 'AppData', 'Roaming');
+      final official = Directory(p.join(roaming, '.minecraft'));
+      await nearby.create(recursive: true);
+      await official.create(recursive: true);
+      final discovery = GameDirectoryDiscovery(
+        windows: true,
+        environment: {'APPDATA': roaming},
+      );
+      final data = await applicationDataDirectory(
+        windows: true,
+        executablePath: p.join(
+          launcher.path,
+          '.mcdownload',
+          'runtime',
+          'hash',
+          'mc_download.exe',
+        ),
+        environment: {
+          'MCD_PORTABLE_DATA': p.join(launcher.path, '.mcdownload'),
+        },
+      );
+      final state = AppState(
+        data,
+        discovery: discovery,
+        javaDiscovery: () async => [],
+      );
+      try {
+        await state.initialize(remote: false);
+        expect(
+          state.settings.selectedRoot,
+          await nearby.resolveSymbolicLinks(),
+        );
+        expect(
+          state.settings.roots,
+          contains(await official.resolveSymbolicLinks()),
+        );
+        // An explicit selection remains respected on subsequent launches.
+        state.settings.selectedRoot = await official.resolveSymbolicLinks();
+        await state.save();
+      } finally {
+        state.dispose();
+      }
+      final restored = AppState(
+        data,
+        discovery: discovery,
+        javaDiscovery: () async => [],
+      );
+      try {
+        await restored.initialize(remote: false);
+        expect(
+          restored.settings.selectedRoot,
+          await official.resolveSymbolicLinks(),
+        );
+      } finally {
+        restored.dispose();
+      }
+    },
+  );
+
+  test(
+    'missing or dismissed sibling root falls back to official directory',
+    () async {
+      final roaming = p.join(temp.path, 'AppData', 'Roaming');
+      final official = Directory(p.join(roaming, '.minecraft'));
+      final launcher = p.join(temp.path, 'HMCL');
+      await official.create(recursive: true);
+      final discovery = GameDirectoryDiscovery(
+        windows: true,
+        environment: {'APPDATA': roaming},
+      );
+      expect(
+        (await discovery.defaults(executableDirectory: launcher)).single.path,
+        await official.resolveSymbolicLinks(),
+      );
+      final nearby = await Directory(
+        p.join(launcher, '.minecraft'),
+      ).create(recursive: true);
+      final data = p.join(launcher, '.mcdownload');
+      await writeJson(p.join(data, 'settings.json'), {
+        'dismissedRoots': [
+          discovery.identity(await nearby.resolveSymbolicLinks()),
+        ],
+      });
+      final state = AppState(
+        data,
+        discovery: discovery,
+        javaDiscovery: () async => [],
+      );
+      try {
+        await state.initialize(remote: false);
+        expect(
+          state.settings.selectedRoot,
+          await official.resolveSymbolicLinks(),
+        );
+        expect(
+          state.settings.roots,
+          isNot(contains(await nearby.resolveSymbolicLinks())),
+        );
+      } finally {
+        state.dispose();
+      }
     },
   );
 

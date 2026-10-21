@@ -82,6 +82,12 @@ class GameDirectoryDiscovery {
   }) async {
     if (!windows) return [];
     final paths = <String, String>{};
+    // Prefer the launcher's portable game folder over the roaming installation.
+    // executableDirectory comes from the outer EXE, including single-file builds.
+    if (executableDirectory != null) {
+      paths[p.join(executableDirectory, '.minecraft')] = '工具旁的游戏目录';
+      paths[executableDirectory] = '工具所在目录';
+    }
     final appdata = environment['APPDATA'];
     final home = environment['USERPROFILE'];
     if (appdata != null && appdata.isNotEmpty) {
@@ -89,10 +95,6 @@ class GameDirectoryDiscovery {
     }
     if (home != null && home.isNotEmpty) {
       paths[p.join(home, 'AppData', 'Roaming', '.minecraft')] = '官方启动器默认目录';
-    }
-    if (executableDirectory != null) {
-      paths[executableDirectory] = '工具所在目录';
-      paths[p.join(executableDirectory, '.minecraft')] = '工具旁的游戏目录';
     }
     final result = <String, GameDirectoryCandidate>{};
     for (final entry in paths.entries) {

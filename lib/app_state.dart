@@ -66,11 +66,18 @@ class AppState extends ChangeNotifier {
         );
       }
     }
+    String? preferredRoot;
     if (settings.autoDiscover) {
       for (final candidate in await discovery.defaults(
         executableDirectory: p.dirname(dataPath),
       )) {
         final key = discovery.identity(candidate.path);
+        final recorded = settings.roots
+            .where((r) => discovery.identity(r) == key)
+            .firstOrNull;
+        if (recorded != null || !settings.dismissedRoots.contains(key)) {
+          preferredRoot ??= recorded ?? candidate.path;
+        }
         if (!settings.roots.any((r) => discovery.identity(r) == key) &&
             !settings.dismissedRoots.contains(key)) {
           settings.roots.add(candidate.path);
@@ -79,7 +86,7 @@ class AppState extends ChangeNotifier {
       }
     }
     if (!settings.roots.contains(settings.selectedRoot)) {
-      settings.selectedRoot = settings.roots.firstOrNull;
+      settings.selectedRoot = preferredRoot ?? settings.roots.firstOrNull;
     }
     network = NetworkService(settings)..onAudit = refresh;
     installer = MinecraftInstaller(network, p.join(dataPath, 'cache'));
