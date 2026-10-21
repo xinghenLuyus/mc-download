@@ -1,4 +1,10 @@
+import 'dart:io';
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
+import '../core/archive_drop.dart';
+import '../core/app_version.dart';
+import 'import_flow.dart';
 import '../app_state.dart';
 import '../core/models.dart';
 import 'common.dart';
@@ -9,12 +15,60 @@ import 'settings_page.dart';
 
 class AppShell extends StatefulWidget {
   final AppState state;
-  const AppShell({super.key, required this.state});
+  final List<String> initialArchives;
+  const AppShell({
+    super.key,
+    required this.state,
+    this.initialArchives = const [],
+  });
   @override
   State<AppShell> createState() => _AppShellState();
 }
 
 class _AppShellState extends State<AppShell> {
+  ArchiveDropBridge? drops;
+  @override
+  void initState() {
+    super.initState();
+    if (Platform.isWindows) {
+      drops = ArchiveDropBridge(importDropped);
+      unawaited(drops!.start());
+    }
+    if (widget.initialArchives.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => importDropped(widget.initialArchives),
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    drops?.dispose();
+    super.dispose();
+  }
+
+  Future<void> importDropped(List<String> files) async {
+    if (!mounted) return;
+    final archives = files
+        .where(
+          (file) =>
+              ['.zip', '.mrpack'].contains(p.extension(file).toLowerCase()),
+        )
+        .toList();
+    if (files.length != 1 || archives.length != 1) {
+      message(context, '请每次拖入一个 .zip 或 .mrpack 整合包');
+      return;
+    }
+    await importModpack(
+      context,
+      s,
+      file: archives.single,
+      onTask: () {
+        if (mounted) setState(() => page = 2);
+      },
+    );
+  }
+
   int page = 0;
   bool focusCurseForge = false;
   String category = 'game';
@@ -66,7 +120,7 @@ class _AppShellState extends State<AppShell> {
                   style: TextStyle(fontSize: 19, fontWeight: FontWeight.w700),
                 ),
                 const SizedBox(width: 10),
-                smallChip(context, 'Windows'),
+                smallChip(context, appVersion),
                 const SizedBox(width: 22),
                 for (final (index, label, icon) in [
                   (0, '下载', Icons.download_outlined),
@@ -125,112 +179,113 @@ class _AppShellState extends State<AppShell> {
           Expanded(
             child: Row(
               children: [
-                SizedBox(
-                  width: 164,
-                  child: Material(
-                    color: Theme.of(context).cardTheme.color,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 16, 16, 6),
-                          child: Text(
-                            page == 0
-                                ? '下载内容'
-                                : ['', '本地游戏', '下载中心', '应用设置'][page],
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: scheme.onSurfaceVariant,
+                if (page != 1)
+                  SizedBox(
+                    width: 164,
+                    child: Material(
+                      color: Theme.of(context).cardTheme.color,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 16, 16, 6),
+                            child: Text(
+                              page == 0
+                                  ? '下载内容'
+                                  : ['', '本地游戏', '下载中心', '应用设置'][page],
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: scheme.onSurfaceVariant,
+                              ),
                             ),
                           ),
-                        ),
-                        if (page == 0) ...[
-                          for (final (id, label, icon) in categories)
-                            Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 1,
-                              ),
-                              child: ListTile(
-                                dense: true,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
+                          if (page == 0) ...[
+                            for (final (id, label, icon) in categories)
+                              Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 1,
                                 ),
-                                selected: id == category,
+                                child: ListTile(
+                                  dense: true,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  selected: id == category,
+                                  selectedTileColor: scheme.primary.withValues(
+                                    alpha: .08,
+                                  ),
+                                  leading: Icon(icon, size: 20),
+                                  title: Text(label),
+                                  onTap: () => setState(() => category = id),
+                                ),
+                              ),
+                          ] else
+                            Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: ListTile(
+                                selected: true,
+                                dense: true,
                                 selectedTileColor: scheme.primary.withValues(
                                   alpha: .08,
                                 ),
-                                leading: Icon(icon, size: 20),
-                                title: Text(label),
-                                onTap: () => setState(() => category = id),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                leading: Icon(
+                                  [
+                                    Icons.download,
+                                    Icons.folder_copy_outlined,
+                                    Icons.list_alt_outlined,
+                                    Icons.settings_outlined,
+                                  ][page],
+                                  size: 20,
+                                ),
+                                title: Text(
+                                  ['下载', '已安装版本', '所有任务', '常规与网络'][page],
+                                ),
                               ),
                             ),
-                        ] else
+                          const Spacer(),
                           Padding(
-                            padding: const EdgeInsets.all(12),
-                            child: ListTile(
-                              selected: true,
-                              dense: true,
-                              selectedTileColor: scheme.primary.withValues(
-                                alpha: .08,
-                              ),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              leading: Icon(
-                                [
-                                  Icons.download,
-                                  Icons.folder_copy_outlined,
-                                  Icons.list_alt_outlined,
-                                  Icons.settings_outlined,
-                                ][page],
-                                size: 20,
-                              ),
-                              title: Text(
-                                ['下载', '已安装版本', '所有任务', '常规与网络'][page],
-                              ),
+                            padding: const EdgeInsets.all(20),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '独立下载 · 本地管理',
+                                  style: TextStyle(
+                                    color: scheme.onSurfaceVariant,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                const Text(
+                                  'Windows / Java Edition',
+                                  style: TextStyle(fontSize: 10),
+                                ),
+                                const SizedBox(height: 16),
+                                TextButton.icon(
+                                  onPressed: () => setState(() => page = 3),
+                                  icon: const Icon(
+                                    Icons.route_outlined,
+                                    size: 16,
+                                  ),
+                                  label: Text(
+                                    s.settings.sourceMode == SourceMode.official
+                                        ? '官方源优先'
+                                        : '镜像源优先',
+                                    style: const TextStyle(fontSize: 12),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                        const Spacer(),
-                        Padding(
-                          padding: const EdgeInsets.all(20),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                '独立下载 · 本地管理',
-                                style: TextStyle(
-                                  color: scheme.onSurfaceVariant,
-                                  fontSize: 11,
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              const Text(
-                                'Windows / Java Edition',
-                                style: TextStyle(fontSize: 10),
-                              ),
-                              const SizedBox(height: 16),
-                              TextButton.icon(
-                                onPressed: () => setState(() => page = 3),
-                                icon: const Icon(
-                                  Icons.route_outlined,
-                                  size: 16,
-                                ),
-                                label: Text(
-                                  s.settings.sourceMode == SourceMode.official
-                                      ? '官方源优先'
-                                      : '镜像源优先',
-                                  style: const TextStyle(fontSize: 12),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
-                ),
-                const VerticalDivider(width: 1),
+                if (page != 1) const VerticalDivider(width: 1),
                 Expanded(
                   child: Column(
                     children: [

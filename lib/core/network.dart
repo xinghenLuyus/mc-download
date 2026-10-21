@@ -5,6 +5,7 @@ import 'dart:isolate';
 import 'dart:math';
 import 'package:crypto/crypto.dart';
 import 'models.dart';
+import 'app_version.dart';
 
 bool isCurseForgeEndpoint(Uri uri) =>
     uri.host == 'api.curseforge.com' ||
@@ -226,7 +227,7 @@ class NetworkService {
         ..connectionTimeout = const Duration(seconds: 20)
         ..idleTimeout = const Duration(seconds: 20)
         ..maxConnectionsPerHost = settings.concurrency
-        ..userAgent = 'MC-Download/0.1.0 (Windows; Minecraft folder manager)'
+        ..userAgent = 'MC-Download/$appVersion (Windows; Minecraft folder manager)'
         ..findProxy = (_) => route;
       if (settings.proxyMode == ProxyMode.manual) {
         final proxy = Uri.parse(settings.proxyUrl);

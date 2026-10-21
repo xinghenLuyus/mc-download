@@ -10,6 +10,7 @@ import 'models.dart';
 import 'network.dart';
 import 'repository.dart';
 import 'java_runtime.dart';
+import 'version_metadata.dart';
 
 class MinecraftInstaller {
   final NetworkService network;
@@ -91,7 +92,12 @@ class MinecraftInstaller {
           mavenVersions(xml).where((v) => v.startsWith('$game-')).toList()
             ..sort(compareVersionNumbers);
       return rows.reversed
-          .map((v) => {'version': v, 'stable': !v.contains('beta')})
+          .map(
+            (v) => {
+              'version': releaseLoaderVersion(game, loader, v),
+              'stable': !v.contains('beta'),
+            },
+          )
           .toList();
     }
     if (loader == 'NeoForge') {
@@ -132,7 +138,7 @@ class MinecraftInstaller {
           return distinct.reversed
               .map(
                 (v) => {
-                  'version': v,
+                  'version': releaseLoaderVersion(game, loader, v),
                   'stable': !v.contains('beta') && !v.contains('alpha'),
                 },
               )
@@ -167,6 +173,19 @@ class MinecraftInstaller {
   }) async {
     validateId(spec.id);
     validateId(spec.game);
+    if (![
+      '',
+      'Forge',
+      'NeoForge',
+      'Fabric',
+      'Quilt',
+      'OptiFine',
+    ].contains(spec.loader)) {
+      throw UnsupportedError('不支持的加载器：${spec.loader}');
+    }
+    if (spec.loader.isNotEmpty && spec.loaderVersion.trim().isEmpty) {
+      throw StateError('尚未确认 ${spec.loader} 版本，请在调整组件中选择明确版本后安装');
+    }
     final target = safeChild(spec.root, 'versions/${spec.id}');
     await guardPath(spec.root, target);
     final backup = safeChild(spec.root, '.mcd-trash/${job.id}-${spec.id}');
@@ -675,7 +694,12 @@ class MinecraftInstaller {
               ? 'net.neoforged:forge'
               : 'net.neoforged:neoforge')
         : 'net.minecraftforge:forge';
-    final coordinate = '$artifact:${spec.loaderVersion}:installer';
+    final version = installerArtifactVersion(
+      spec.game,
+      spec.loader,
+      spec.loaderVersion,
+    );
+    final coordinate = '$artifact:$version:installer';
     final relative = mavenPath(coordinate);
     final url =
         '${neo ? 'https://maven.neoforged.net/releases' : 'https://maven.minecraftforge.net'}/$relative';

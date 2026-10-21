@@ -6,6 +6,8 @@ import '../core/models.dart';
 import '../core/repository.dart';
 import '../core/network.dart';
 import 'common.dart';
+import '../core/version_metadata.dart';
+import 'import_flow.dart';
 
 class DownloadPage extends StatelessWidget {
   final AppState state;
@@ -318,10 +320,18 @@ class _InstallDialogState extends State<InstallDialog> {
       if (mounted && token == generation) {
         setState(() {
           loaders = rows;
-          selected =
-              (rows.where((e) => e['stable'] == true).firstOrNull ??
-                  rows.firstOrNull)?['version'] ??
-              '';
+          final preferred = widget.existing?.loader == value
+              ? releaseLoaderVersion(
+                  game,
+                  value,
+                  widget.existing!.loaderVersion,
+                )
+              : '';
+          selected = rows.any((row) => row['version'] == preferred)
+              ? preferred
+              : (rows.where((e) => e['stable'] == true).firstOrNull ??
+                        rows.firstOrNull)?['version'] ??
+                    '';
           if (rows.isEmpty) error = '此游戏版本没有可用的 $value';
         });
       }
@@ -576,32 +586,8 @@ class _ResourceBrowserState extends State<ResourceBrowser> {
     }
   }
 
-  Future<void> importPack() async {
-    await action(context, () async {
-      final file = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: ['zip', 'mrpack'],
-      );
-      if (file == null) return;
-      final info = await s.packs.inspect(file.files.single.path!);
-      if (!mounted) return;
-      final id = await input(
-        context,
-        '安装本地整合包',
-        value: info.name.replaceAll(RegExp(r'[<>:"/\\|?*]'), '-'),
-        note:
-            '${info.format} · Minecraft ${info.game} · ${info.loader} ${info.loaderVersion}\n将自动使用版本隔离。',
-      );
-      if (id == null) return;
-      validateId(id);
-      s.enqueue('安装整合包 $id', 'pack', {
-        'file': info.file,
-        'root': s.requireRoot(),
-        'id': id,
-      });
-      widget.onTask();
-    });
-  }
+  Future<void> importPack() =>
+      importModpack(context, widget.state, onTask: widget.onTask);
 
   @override
   Widget build(BuildContext context) {

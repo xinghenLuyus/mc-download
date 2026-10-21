@@ -90,7 +90,8 @@ class GameVersion {
 class LocalVersion {
   final String root, id, game, loader, loaderVersion, contentPath;
   final Json manifest;
-  final bool isolationKnown;
+  final Map<String, String> components;
+  final bool isolationKnown, identityKnown;
   final String error;
   LocalVersion({
     required this.root,
@@ -100,11 +101,19 @@ class LocalVersion {
     required this.loaderVersion,
     required this.contentPath,
     required this.manifest,
+    this.components = const {},
     this.isolationKnown = true,
+    this.identityKnown = true,
     this.error = '',
   });
   String get path => p.join(root, 'versions', id);
-  String get label => loader.isEmpty ? '原版' : '$loader $loaderVersion';
+  String get label => components.isNotEmpty
+      ? components.entries.map((e) => '${e.key} ${e.value}'.trim()).join(' · ')
+      : loader.isEmpty
+      ? identityKnown
+            ? '原版'
+            : '未识别'
+      : '$loader $loaderVersion'.trim();
 }
 
 class InstallSpec {

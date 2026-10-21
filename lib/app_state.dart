@@ -371,9 +371,9 @@ class AppState extends ChangeNotifier {
         );
       case 'remotePack':
         final version = asMap(r['version']);
-        final path = safeChild(
+        final path = resources.cachePath(
           p.join(dataPath, 'cache', 'packs'),
-          version['filename'],
+          version,
         );
         await network.download(resources.downloadFile(version, path), job);
         await packs.install(await packs.inspect(path), r['root'], r['id'], job);

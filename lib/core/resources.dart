@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 import 'models.dart';
 import 'network.dart';
@@ -203,12 +204,48 @@ class ResourceService {
     {'kind': 'mod'},
   );
 
+  Future<Json> cursePackFile(
+    String project,
+    String file, {
+    DownloadJob? job,
+  }) async {
+    final result = await Future.wait([
+      curseFile(project, file, job: job),
+      cf('mods/$project', job: job),
+    ]);
+    final version = asMap(result[0]);
+    final metadata = asMap(asMap(result[1])['data']);
+    version['kind'] = switch (metadata['classId']) {
+      6 => 'mod',
+      12 => 'resourcepack',
+      6552 => 'shader',
+      6945 => 'datapack',
+      _ => throw StateError(
+        '整合包引用了不支持的 CurseForge 资源类型：${metadata['classId']}（项目 $project）',
+      ),
+    };
+    version['projectUrl'] = asMap(metadata['links'])['websiteUrl'];
+    return version;
+  }
+
+  String cachePath(String directory, Json version) {
+    final identity = jsonEncode([
+      version['provider'],
+      version['projectId'],
+      version['id'],
+      version['hash'],
+      version['urls'],
+    ]);
+    final key = sha256.convert(utf8.encode(identity)).toString();
+    return safeChild(directory, '$key/${version['filename']}');
+  }
+
   DownloadFile downloadFile(Json version, String target) {
     if (version['provider'] == 'CurseForge') network.requireCurseForgeKey();
     final urls = asList(version['urls']).cast<String>();
     if (urls.isEmpty) {
       throw StateError(
-        '作者禁止第三方直接下载，请手动下载并导入：https://www.curseforge.com/minecraft/mc-mods/${version['projectId']}/files/${version['id']}',
+        '作者禁止第三方直接下载，请手动下载并导入：${version['projectUrl'] ?? 'https://www.curseforge.com/minecraft/mc-mods/${version['projectId']}'}',
       );
     }
     return DownloadFile(

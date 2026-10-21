@@ -58,44 +58,29 @@ class _VersionsPageState extends State<VersionsPage> {
     await widget.state.scan();
     if (mounted) setState(() => selected = name);
   });
+  bool railCollapsed = false;
   @override
   Widget build(BuildContext context) {
     final s = widget.state;
+    final term = search.trim().toLowerCase();
     final rows = s.localVersions
-        .where((v) => v.id.toLowerCase().contains(search.toLowerCase()))
+        .where(
+          (v) => '${v.id} ${v.game} ${v.label}'.toLowerCase().contains(term),
+        )
         .toList();
-    final current = s.localVersions.where((v) => v.id == selected).firstOrNull;
+    final current =
+        rows.where((v) => v.id == selected).firstOrNull ?? rows.firstOrNull;
     return Padding(
-      padding: const EdgeInsets.all(28),
+      padding: const EdgeInsets.all(12),
       child: Column(
         children: [
-          SectionHeading(
-            '版本管理',
-            '管理已有游戏文件，补全依赖，安装或更新本地内容。',
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextButton.icon(
-                  onPressed: restore,
-                  icon: const Icon(Icons.restore, size: 18),
-                  label: const Text('恢复备份'),
-                ),
-                const SizedBox(width: 8),
-                OutlinedButton.icon(
-                  onPressed: s.scanning ? null : s.scan,
-                  icon: const Icon(Icons.refresh, size: 18),
-                  label: const Text('刷新'),
-                ),
-              ],
-            ),
-          ),
           if (s.scanError != null) InfoStrip(s.scanError!, warning: true),
+          if (s.scanning) const LinearProgressIndicator(),
           Expanded(
-            child: rows.isEmpty && s.localVersions.isEmpty
+            child: s.localVersions.isEmpty
                 ? EmptyState(
                     '还没有游戏版本',
                     '添加已有的 .minecraft 目录，或从下载页安装一个版本。',
-                    icon: Icons.folder_copy_outlined,
                     button: OutlinedButton.icon(
                       onPressed: () => addRoot(context, s),
                       icon: const Icon(Icons.add),
@@ -106,65 +91,128 @@ class _VersionsPageState extends State<VersionsPage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       SizedBox(
-                        width: 265,
-                        child: Column(
-                          children: [
-                            TextField(
-                              decoration: const InputDecoration(
-                                prefixIcon: Icon(Icons.search, size: 18),
-                                hintText: '搜索已安装版本',
-                              ),
-                              onChanged: (v) => setState(() => search = v),
-                            ),
-                            const SizedBox(height: 14),
-                            Expanded(
-                              child: Card(
-                                child: ListView.separated(
-                                  itemCount: rows.length,
-                                  separatorBuilder: (_, _) =>
-                                      const Divider(height: 1),
-                                  itemBuilder: (_, i) {
-                                    final v = rows[i];
-                                    return ListTile(
-                                      selected: v.id == selected,
-                                      selectedTileColor: Theme.of(context)
-                                          .colorScheme
-                                          .primary
-                                          .withValues(alpha: .07),
-                                      leading: Icon(
-                                        v.loader.isEmpty
-                                            ? Icons.grass_outlined
-                                            : Icons.extension_outlined,
-                                        size: 22,
-                                      ),
-                                      title: Text(
-                                        v.id,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w600,
+                        width: railCollapsed ? 36 : 210,
+                        child: railCollapsed
+                            ? IconButton(
+                                tooltip: '展开版本列表',
+                                icon: const Icon(Icons.chevron_right),
+                                onPressed: () =>
+                                    setState(() => railCollapsed = false),
+                              )
+                            : Column(
+                                children: [
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          '已安装版本 · ${s.localVersions.length}',
+                                          style: Theme.of(
+                                            context,
+                                          ).textTheme.titleSmall,
                                         ),
                                       ),
-                                      subtitle: Text(
-                                        '${v.game} · ${v.label}',
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(fontSize: 10),
+                                      IconButton(
+                                        tooltip: '恢复备份',
+                                        onPressed: restore,
+                                        icon: const Icon(
+                                          Icons.restore,
+                                          size: 18,
+                                        ),
                                       ),
-                                      onTap: () =>
-                                          setState(() => selected = v.id),
-                                    );
-                                  },
-                                ),
+                                      IconButton(
+                                        tooltip: '收起版本列表',
+                                        onPressed: () => setState(
+                                          () => railCollapsed = true,
+                                        ),
+                                        icon: const Icon(
+                                          Icons.chevron_left,
+                                          size: 18,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  TextField(
+                                    key: const ValueKey('version-search'),
+                                    decoration: const InputDecoration(
+                                      prefixIcon: Icon(Icons.search, size: 18),
+                                      hintText: '搜索版本 / 加载器',
+                                    ),
+                                    onChanged: (value) =>
+                                        setState(() => search = value),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Expanded(
+                                    child: Card(
+                                      child: rows.isEmpty
+                                          ? const EmptyState(
+                                              '没有匹配版本',
+                                              '试试其他名称或加载器',
+                                            )
+                                          : ListView.separated(
+                                              itemCount: rows.length,
+                                              separatorBuilder: (_, _) =>
+                                                  const Divider(height: 1),
+                                              itemBuilder: (_, i) {
+                                                final version = rows[i];
+                                                return ListTile(
+                                                  dense: true,
+                                                  contentPadding:
+                                                      const EdgeInsets.symmetric(
+                                                        horizontal: 12,
+                                                        vertical: 3,
+                                                      ),
+                                                  selected:
+                                                      version.id == current?.id,
+                                                  selectedTileColor:
+                                                      Theme.of(context)
+                                                          .colorScheme
+                                                          .primary
+                                                          .withValues(
+                                                            alpha: .07,
+                                                          ),
+                                                  title: Tooltip(
+                                                    message: version.id,
+                                                    child: Text(
+                                                      version.id,
+                                                      maxLines: 1,
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
+                                                      style: const TextStyle(
+                                                        fontSize: 13,
+                                                        fontWeight:
+                                                            FontWeight.w600,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  subtitle: Text(
+                                                    '${version.game} · ${version.label}',
+                                                    maxLines: 2,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                    style: const TextStyle(
+                                                      fontSize: 11,
+                                                    ),
+                                                  ),
+                                                  onTap: () => setState(
+                                                    () => selected = version.id,
+                                                  ),
+                                                );
+                                              },
+                                            ),
+                                    ),
+                                  ),
+                                  TextButton.icon(
+                                    onPressed: s.scanning ? null : s.scan,
+                                    icon: const Icon(Icons.refresh, size: 16),
+                                    label: const Text('刷新版本'),
+                                  ),
+                                ],
                               ),
-                            ),
-                          ],
-                        ),
                       ),
-                      const SizedBox(width: 20),
+                      const SizedBox(width: 12),
                       Expanded(
                         child: current == null
-                            ? const EmptyState('选择一个版本', '在左侧查看版本详情和本地内容')
+                            ? const EmptyState('没有匹配版本', '修改左侧关键词查看其他版本')
                             : VersionDetail(
                                 key: ValueKey(
                                   '${current.root}:${current.id}:${current.contentPath}',
@@ -204,6 +252,17 @@ class _VersionDetailState extends State<VersionDetail> {
   String category = 'mods';
   List<Json> files = [];
   bool loading = false;
+  int generation = 0;
+  String status = 'all';
+  String? loadError;
+  final query = TextEditingController();
+  static const categories = {
+    'mods': 'Mod',
+    'resourcepacks': '资源包',
+    'shaderpacks': '光影',
+    'saves': '世界',
+    'config': '配置',
+  };
   AppState get s => widget.state;
   LocalVersion get v => widget.version;
   bool get busy => s.jobs.any((j) => j.active && j.request['root'] == v.root);
@@ -213,17 +272,102 @@ class _VersionDetailState extends State<VersionDetail> {
     load();
   }
 
+  @override
+  void didUpdateWidget(covariant VersionDetail oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.version != widget.version) load();
+  }
+
+  @override
+  void dispose() {
+    generation++;
+    query.dispose();
+    super.dispose();
+  }
+
   Future<void> load() async {
-    setState(() => loading = true);
+    final token = ++generation;
+    final folder = category;
+    setState(() {
+      loading = true;
+      loadError = null;
+    });
     try {
-      final rows = await s.contentFiles(v, category);
-      if (mounted) setState(() => files = rows);
+      final rows = await s.contentFiles(v, folder);
+      if (mounted && generation == token) setState(() => files = rows);
     } catch (e) {
-      if (mounted) message(context, e, error: true);
+      if (mounted && generation == token) {
+        setState(() {
+          files = [];
+          loadError = '$e';
+        });
+      }
     } finally {
-      if (mounted) setState(() => loading = false);
+      if (mounted && generation == token) setState(() => loading = false);
     }
   }
+
+  Future<void> repair() => action(context, () async {
+    String? game;
+    if (!s.remoteVersions.any((e) => e.id == v.game)) {
+      game = await input(
+        context,
+        '确认原版 Minecraft 版本',
+        value: v.game,
+        note: '例如 1.20.1。损坏的描述文件可能无法识别版本，请按原来的版本填写。',
+      );
+      if (game == null) return;
+      validateId(game);
+    }
+    s.enqueue('补全 ${v.id}', 'repair', {
+      'root': v.root,
+      'target': v.id,
+      'game': ?game,
+    });
+    widget.onTask();
+  });
+  Future<void> updates() => action(context, () async {
+    if (await confirm(
+      context,
+      '更新已跟踪资源',
+      '检查此工具安装的资源，并更新到当前游戏版本和加载器兼容的最新版本。旧文件会禁用并保留。',
+    )) {
+      s.enqueue('更新 ${v.id} 的资源', 'updates', {'root': v.root, 'target': v.id});
+      widget.onTask();
+    }
+  });
+  Future<void> importContent() => action(context, () async {
+    final folder = category;
+    final result = await FilePicker.platform.pickFiles(
+      allowMultiple: folder != 'saves',
+      type: FileType.any,
+    );
+    if (result == null || !mounted) return;
+    if (folder == 'saves') {
+      final name = await input(
+        context,
+        '世界名称',
+        value: p.basenameWithoutExtension(result.files.single.name),
+      );
+      if (name == null) return;
+      validateId(name);
+      s.enqueue('导入世界 $name', 'world', {
+        'root': v.root,
+        'target': v.id,
+        'file': result.files.single.path,
+        'name': name,
+      });
+      widget.onTask();
+    } else {
+      await s.importFiles(v, folder, result.paths.whereType<String>().toList());
+      await load();
+    }
+  });
+  Future<void> openContentFolder() => action(context, () async {
+    final folder = safeChild(v.contentPath, category);
+    await guardPath(v.contentPath, folder);
+    await openFolder(folder);
+  });
 
   Future<void> renameOrCopy(bool rename) async {
     final name = await input(
@@ -246,7 +390,12 @@ class _VersionDetailState extends State<VersionDetail> {
         throw StateError('此游戏目录有正在进行的任务，请先暂停任务');
       }
       switch (value) {
+        case 'updates':
+          await updates();
         case 'modify':
+          if (['LiteLoader', 'LegacyFabric', 'Cleanroom'].contains(v.loader)) {
+            throw StateError('可以管理本地内容，但暂不支持修改 ${v.loader} 组件');
+          }
           if (v.contentPath != v.path && v.contentPath != v.root) {
             throw StateError('此版本使用外部自定义内容目录，请先复制为标准版本再修改');
           }
@@ -296,141 +445,124 @@ class _VersionDetailState extends State<VersionDetail> {
   }
 
   @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Card(
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      v.id,
-                      style: const TextStyle(
-                        fontSize: 19,
-                        fontWeight: FontWeight.w700,
+  Widget build(BuildContext context) {
+    final term = query.text.trim().toLowerCase();
+    final visible = files
+        .where(
+          (file) =>
+              (file['name'] as String).toLowerCase().contains(term) &&
+              (category != 'mods' ||
+                  status == 'all' ||
+                  (status == 'disabled') == file['disabled']),
+        )
+        .toList();
+    final summary =
+        'Minecraft ${v.game} · ${v.label} · ${v.contentPath == v.path ? '版本隔离' : '共享 / 自定义目录'}';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Tooltip(
+                        message: v.id,
+                        child: Text(
+                          v.id,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
-                  PopupMenuButton<String>(
-                    onSelected: menu,
-                    itemBuilder: (_) => [
-                      const PopupMenuItem(value: 'open', child: Text('打开版本目录')),
-                      const PopupMenuItem(
-                        value: 'content',
-                        child: Text('打开内容目录'),
+                      const SizedBox(height: 3),
+                      Tooltip(
+                        message: '$summary\n${v.contentPath}',
+                        child: Text(
+                          summary,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
                       ),
-                      const PopupMenuItem(
-                        value: 'json',
-                        child: Text('查看版本 JSON'),
-                      ),
-                      const PopupMenuItem(
-                        value: 'modify',
-                        child: Text('调整版本与组件'),
-                      ),
-                      const PopupMenuItem(value: 'copy', child: Text('复制版本')),
-                      const PopupMenuItem(value: 'rename', child: Text('重命名')),
-                      const PopupMenuItem(
-                        value: 'export',
-                        child: Text('导出整合包'),
-                      ),
-                      const PopupMenuItem(value: 'delete', child: Text('移除版本')),
                     ],
                   ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  smallChip(context, 'Minecraft ${v.game}'),
-                  smallChip(context, v.label),
-                  smallChip(
-                    context,
-                    v.contentPath == v.path ? '版本隔离' : '共享 / 自定义内容目录',
-                  ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              if (v.error.isNotEmpty) InfoStrip(v.error, warning: true),
-              SelectableText(
-                v.contentPath,
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-              const SizedBox(height: 16),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  FilledButton.icon(
-                    onPressed: busy
-                        ? null
-                        : () => action(context, () async {
-                            String? game;
-                            if (!s.remoteVersions.any((e) => e.id == v.game)) {
-                              game = await input(
-                                context,
-                                '确认原版 Minecraft 版本',
-                                value: v.game,
-                                note: '例如 1.20.1。损坏的描述文件可能无法识别版本，请按原来的版本填写。',
-                              );
-                              if (game == null) return;
-                              validateId(game);
-                            }
-                            s.enqueue('补全 ${v.id}', 'repair', {
-                              'root': v.root,
-                              'target': v.id,
-                              'game': ?game,
-                            });
-                            widget.onTask();
-                          }),
-                    icon: const Icon(Icons.build_outlined, size: 16),
-                    label: const Text('补全文件'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: () => widget.onBrowse(v, 'mod'),
-                    icon: const Icon(Icons.add, size: 16),
-                    label: const Text('下载内容'),
-                  ),
-                  OutlinedButton(
-                    onPressed: busy ? null : () => menu('modify'),
-                    child: const Text('调整组件'),
-                  ),
-                  OutlinedButton(
-                    onPressed: busy
-                        ? null
-                        : () => action(context, () async {
-                            if (await confirm(
-                              context,
-                              '更新已跟踪资源',
-                              '检查此工具安装的资源，并更新到当前游戏版本和加载器兼容的最新版本。旧文件会禁用并保留。',
-                            )) {
-                              s.enqueue('更新 ${v.id} 的资源', 'updates', {
-                                'root': v.root,
-                                'target': v.id,
-                              });
-                              widget.onTask();
-                            }
-                          }),
-                    child: const Text('更新资源'),
-                  ),
-                ],
-              ),
-            ],
+                ),
+                TextButton.icon(
+                  onPressed: busy ? null : repair,
+                  icon: const Icon(Icons.build_outlined, size: 16),
+                  label: const Text('补全文件'),
+                ),
+                TextButton.icon(
+                  onPressed: () => widget.onBrowse(v, switch (category) {
+                    'resourcepacks' => 'resourcepack',
+                    'shaderpacks' => 'shader',
+                    'saves' => 'world',
+                    _ => 'mod',
+                  }),
+                  icon: const Icon(Icons.add, size: 16),
+                  label: const Text('下载内容'),
+                ),
+                PopupMenuButton<String>(
+                  tooltip: '版本操作',
+                  onSelected: menu,
+                  itemBuilder: (_) => [
+                    const PopupMenuItem(value: 'open', child: Text('打开版本目录')),
+                    const PopupMenuItem(
+                      value: 'content',
+                      child: Text('打开内容目录'),
+                    ),
+                    const PopupMenuItem(
+                      value: 'json',
+                      child: Text('查看版本 JSON'),
+                    ),
+                    PopupMenuItem(
+                      value: 'modify',
+                      enabled: !busy,
+                      child: const Text('调整版本与组件'),
+                    ),
+                    PopupMenuItem(
+                      value: 'updates',
+                      enabled: !busy,
+                      child: const Text('更新已跟踪资源'),
+                    ),
+                    PopupMenuItem(
+                      value: 'copy',
+                      enabled: !busy,
+                      child: const Text('复制版本'),
+                    ),
+                    PopupMenuItem(
+                      value: 'rename',
+                      enabled: !busy,
+                      child: const Text('重命名'),
+                    ),
+                    PopupMenuItem(
+                      value: 'export',
+                      enabled: !busy,
+                      child: const Text('导出整合包'),
+                    ),
+                    PopupMenuItem(
+                      value: 'delete',
+                      enabled: !busy,
+                      child: const Text('移除版本'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
-      ),
-      const SizedBox(height: 12),
-      if (!v.isolationKnown)
-        Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: InfoStrip(
-            '此版本的内容目录根据文件推断。安装内容前可确认目录：',
+        if (v.error.isNotEmpty) InfoStrip(v.error, warning: true),
+        if (!v.isolationKnown)
+          InfoStrip(
+            '内容目录根据文件推断，安装前请确认。',
             warning: true,
             action: PopupMenuButton<bool>(
               tooltip: '确认内容目录',
@@ -440,157 +572,237 @@ class _VersionDetailState extends State<VersionDetail> {
                       await GameRepository(v.root).setIsolation(v, isolate);
                       await s.scan();
                     }),
-              itemBuilder: (_) => [
-                const PopupMenuItem(value: true, child: Text('使用版本目录')),
-                const PopupMenuItem(value: false, child: Text('使用游戏根目录')),
+              itemBuilder: (_) => const [
+                PopupMenuItem(value: true, child: Text('使用版本目录')),
+                PopupMenuItem(value: false, child: Text('使用游戏根目录')),
               ],
             ),
           ),
-        ),
-      Wrap(
-        spacing: 8,
-        runSpacing: 4,
-        children: [
-          for (final (key, title) in [
-            ('mods', 'Mod'),
-            ('resourcepacks', '资源包'),
-            ('shaderpacks', '光影'),
-            ('saves', '世界'),
-            ('config', '配置'),
-          ])
-            ChoiceChip(
-              label: Text(title),
-              selected: category == key,
-              onSelected: (_) {
-                setState(() => category = key);
-                load();
-              },
-            ),
-        ],
-      ),
-      const SizedBox(height: 12),
-      Row(
-        children: [
-          Text(
-            '${files.length} 项',
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
-          const Spacer(),
-          IconButton(
-            tooltip: '刷新内容',
-            onPressed: load,
-            icon: const Icon(Icons.refresh, size: 18),
-          ),
-          TextButton.icon(
-            onPressed: busy
-                ? null
-                : () => action(context, () async {
-                    final result = await FilePicker.platform.pickFiles(
-                      allowMultiple: category != 'saves',
-                      type: FileType.any,
-                    );
-                    if (result == null) return;
-                    if (category == 'saves') {
-                      if (!context.mounted) return;
-                      final name = await input(
-                        context,
-                        '世界名称',
-                        value: p.basenameWithoutExtension(
-                          result.files.single.name,
-                        ),
-                      );
-                      if (name == null) return;
-                      validateId(name);
-                      s.enqueue('导入世界 $name', 'world', {
-                        'root': v.root,
-                        'target': v.id,
-                        'file': result.files.single.path,
-                        'name': name,
+        const SizedBox(height: 6),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              for (final entry in categories.entries)
+                Padding(
+                  padding: const EdgeInsets.only(right: 4),
+                  child: TextButton(
+                    style: TextButton.styleFrom(
+                      backgroundColor: category == entry.key
+                          ? Theme.of(
+                              context,
+                            ).colorScheme.primary.withValues(alpha: .1)
+                          : null,
+                      minimumSize: const Size(64, 36),
+                    ),
+                    onPressed: () {
+                      if (category == entry.key) return;
+                      setState(() {
+                        category = entry.key;
+                        status = 'all';
+                        query.clear();
                       });
-                      widget.onTask();
-                    } else {
-                      await s.importFiles(
-                        v,
-                        category,
-                        result.paths.whereType<String>().toList(),
-                      );
-                      await load();
-                    }
-                  }),
-            icon: const Icon(Icons.file_upload_outlined, size: 16),
-            label: const Text('导入'),
+                      load();
+                    },
+                    child: Text(entry.value),
+                  ),
+                ),
+            ],
           ),
-        ],
-      ),
-      Expanded(
-        child: loading
-            ? const Center(child: CircularProgressIndicator())
-            : files.isEmpty
-            ? const EmptyState('这里还没有内容', '从下载页安装，或导入本地文件。')
-            : Card(
-                child: ListView.separated(
-                  itemCount: files.length,
-                  separatorBuilder: (_, _) => const Divider(height: 1),
-                  itemBuilder: (_, i) {
-                    final file = files[i];
-                    return ListTile(
-                      dense: true,
-                      leading: Icon(
-                        file['directory']
-                            ? Icons.folder_outlined
-                            : Icons.description_outlined,
-                        size: 20,
-                      ),
-                      title: Text(
-                        file['name'],
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: file['disabled']
-                              ? Theme.of(context).colorScheme.onSurfaceVariant
-                              : null,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      subtitle: Text(
-                        file['directory'] ? '文件夹' : bytesLabel(file['size']),
-                        style: const TextStyle(fontSize: 10),
-                      ),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (category == 'mods' && !file['directory'])
-                            Switch(
-                              value: !file['disabled'],
-                              onChanged: busy
-                                  ? null
-                                  : (_) => action(context, () async {
-                                      await s.toggleFile(v, file['path']);
-                                      await load();
-                                    }),
-                            ),
-                          IconButton(
-                            tooltip: '移到备份目录',
-                            onPressed: busy
-                                ? null
-                                : () => action(context, () async {
-                                    if (await confirm(
-                                      context,
-                                      '移除本地内容',
-                                      '将 ${file['name']} 移到内容目录内的 .mcd-trash，可手动恢复。',
-                                    )) {
-                                      await s.trashContent(v, file['path']);
-                                      await load();
-                                    }
-                                  }),
-                            icon: const Icon(Icons.delete_outline, size: 18),
+        ),
+        const SizedBox(height: 6),
+        LayoutBuilder(
+          builder: (context, constraints) => Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  key: const ValueKey('content-search'),
+                  controller: query,
+                  onChanged: (_) => setState(() {}),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 10,
+                    ),
+                    hintText: '搜索${categories[category]}文件名',
+                    prefixIcon: const Icon(Icons.search, size: 18),
+                    suffixIcon: query.text.isEmpty
+                        ? null
+                        : IconButton(
+                            tooltip: '清空搜索',
+                            icon: const Icon(Icons.close, size: 16),
+                            onPressed: () => setState(query.clear),
                           ),
-                        ],
-                      ),
-                    );
-                  },
+                  ),
                 ),
               ),
-      ),
-    ],
-  );
+              const SizedBox(width: 8),
+              if (category == 'mods') ...[
+                SizedBox(
+                  width: 120,
+                  child: DropdownButtonFormField<String>(
+                    initialValue: status,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      isDense: true,
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 10,
+                      ),
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 'all', child: Text('全部状态')),
+                      DropdownMenuItem(value: 'enabled', child: Text('已启用')),
+                      DropdownMenuItem(value: 'disabled', child: Text('已禁用')),
+                    ],
+                    onChanged: (value) {
+                      if (value != null) setState(() => status = value);
+                    },
+                  ),
+                ),
+                const SizedBox(width: 8),
+              ],
+              Text(
+                term.isEmpty && status == 'all'
+                    ? '${files.length} 项'
+                    : '${visible.length} / ${files.length}',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(width: 4),
+              if (constraints.maxWidth > 760)
+                TextButton.icon(
+                  onPressed: openContentFolder,
+                  icon: const Icon(Icons.folder_open_outlined, size: 18),
+                  label: Text('打开 ${categories[category]} 文件夹'),
+                )
+              else
+                IconButton(
+                  tooltip: '打开 ${categories[category]} 文件夹',
+                  onPressed: openContentFolder,
+                  icon: const Icon(Icons.folder_open_outlined, size: 18),
+                ),
+              IconButton(
+                tooltip: '刷新内容',
+                onPressed: loading ? null : load,
+                icon: const Icon(Icons.refresh, size: 18),
+              ),
+              IconButton(
+                tooltip: '导入${categories[category]}',
+                onPressed: busy ? null : importContent,
+                icon: const Icon(Icons.file_upload_outlined, size: 18),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        Expanded(
+          child: Card(
+            key: const ValueKey('version-content-list'),
+            child: loading
+                ? const Center(child: CircularProgressIndicator())
+                : loadError != null
+                ? EmptyState(
+                    '读取内容失败',
+                    loadError!,
+                    button: TextButton(
+                      onPressed: load,
+                      child: const Text('重试'),
+                    ),
+                  )
+                : visible.isEmpty
+                ? EmptyState(
+                    files.isEmpty ? '这里还没有内容' : '没有匹配文件',
+                    files.isEmpty
+                        ? '下载内容或导入本地文件，也可以直接打开文件夹管理。'
+                        : '试试其他文件名，或切换启用状态。',
+                  )
+                : ListView.separated(
+                    itemCount: visible.length,
+                    separatorBuilder: (_, _) => const Divider(height: 1),
+                    itemBuilder: (_, i) {
+                      final file = visible[i];
+                      return ListTile(
+                        dense: true,
+                        minTileHeight: 44,
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                        ),
+                        leading: Icon(
+                          file['directory']
+                              ? Icons.folder_outlined
+                              : Icons.description_outlined,
+                          size: 18,
+                        ),
+                        title: Row(
+                          children: [
+                            Expanded(
+                              child: Tooltip(
+                                message: file['name'],
+                                child: Text(
+                                  file['name'],
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: file['disabled']
+                                        ? Theme.of(
+                                            context,
+                                          ).colorScheme.onSurfaceVariant
+                                        : null,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              file['directory']
+                                  ? '文件夹'
+                                  : bytesLabel(file['size']),
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (category == 'mods' && !file['directory'])
+                              Switch(
+                                materialTapTargetSize:
+                                    MaterialTapTargetSize.shrinkWrap,
+                                value: !file['disabled'],
+                                onChanged: busy
+                                    ? null
+                                    : (_) => action(context, () async {
+                                        await s.toggleFile(v, file['path']);
+                                        await load();
+                                      }),
+                              ),
+                            IconButton(
+                              tooltip: '移到备份目录',
+                              visualDensity: VisualDensity.compact,
+                              onPressed: busy
+                                  ? null
+                                  : () => action(context, () async {
+                                      if (await confirm(
+                                        context,
+                                        '移除本地内容',
+                                        '将 ${file['name']} 移到内容目录内的 .mcd-trash，可手动恢复。',
+                                      )) {
+                                        await s.trashContent(v, file['path']);
+                                        await load();
+                                      }
+                                    }),
+                              icon: const Icon(Icons.delete_outline, size: 18),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ),
+      ],
+    );
+  }
 }

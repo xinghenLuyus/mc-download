@@ -1,6 +1,7 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import '../app_state.dart';
+import '../core/app_version.dart';
 import '../core/models.dart';
 import '../core/network.dart';
 import '../core/java_runtime.dart';
@@ -643,7 +644,7 @@ class _SettingsPageState extends State<SettingsPage> {
               onPressed: () => showLicensePage(
                 context: context,
                 applicationName: 'MC Download',
-                applicationVersion: '0.1.0',
+                applicationVersion: appVersion,
               ),
               child: const Text('开源依赖许可证'),
             ),

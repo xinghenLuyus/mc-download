@@ -3,12 +3,29 @@ on:
   workflow_dispatch:
   push:
     branches: [main, master]
+    tags: ['v*']
   pull_request:
+permissions:
+  contents: read
 jobs:
   build:
     runs-on: windows-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
     steps:
       - uses: actions/checkout@v4
+      - name: Resolve application version
+        id: version
+        shell: pwsh
+        run: |
+          $requested = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME } else { 'dev' }
+          $version = ./scripts/build-version.ps1 -Version $requested
+          "version=$($version.Label)" >> $env:GITHUB_OUTPUT
+          "prerelease=$($version.Prerelease.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+      - name: Verify version resolution
+        run: ./scripts/test-build-version.ps1
+        shell: pwsh
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.47.7'
@@ -17,14 +34,50 @@ jobs:
       - run: flutter pub get
       - run: flutter analyze
       - name: Run regression tests
-        run: flutter test --no-pub --reporter expanded
+        run: flutter test --no-pub --reporter expanded "--dart-define=MC_DOWNLOAD_VERSION=$env:APP_VERSION"
+        shell: pwsh
+        env:
+          APP_VERSION: ${{ steps.version.outputs.version }}
       - name: Verify portable launcher
         run: ./scripts/test-portable.ps1
         shell: pwsh
-      - run: ./scripts/build-windows.ps1 -SkipChecks
+      - name: Build versioned application
+        run: ./scripts/build-windows.ps1 -SkipChecks -Version $env:APP_VERSION
         shell: pwsh
+        env:
+          APP_VERSION: ${{ steps.version.outputs.version }}
       - uses: actions/upload-artifact@v4
         with:
-          name: MC-Download-Windows-x64
-          path: orther/releases/MC Download.exe
+          name: MC-Download-${{ steps.version.outputs.version }}-Windows-x64
+          path: orther/releases/MC Download ${{ steps.version.outputs.version }}.exe
           if-no-files-found: error
+  release:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: MC-Download-${{ needs.build.outputs.version }}-Windows-x64
+          path: orther/releases
+      - name: Publish tagged release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          APP_VERSION: ${{ needs.build.outputs.version }}
+          PRERELEASE: ${{ needs.build.outputs.prerelease }}
+        run: |
+          $asset = "orther/releases/MC Download $env:APP_VERSION.exe"
+          gh release view $env:RELEASE_TAG *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $env:RELEASE_TAG $asset --clobber
+          } else {
+            $arguments = @('release', 'create', $env:RELEASE_TAG, $asset, '--verify-tag', '--generate-notes', '--title', "MC Download $env:APP_VERSION")
+            if ($env:PRERELEASE -eq 'true') { $arguments += '--prerelease' }
+            gh @arguments
+          }
+          if ($LASTEXITCODE -ne 0) { throw 'Release publishing failed.' }

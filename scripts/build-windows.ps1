@@ -1,6 +1,7 @@
-param([switch]$SkipChecks)
+param([switch]$SkipChecks, [string]$Version = 'dev')
 $ErrorActionPreference = 'Stop'
 Set-Location (Join-Path $PSScriptRoot '..')
+$versionInfo = & (Join-Path $PSScriptRoot 'build-version.ps1') -Version $Version
 function Invoke-Flutter {
     & flutter @args
     if ($LASTEXITCODE -ne 0) { throw "flutter failed with exit code $LASTEXITCODE" }
@@ -10,7 +11,11 @@ if (-not $SkipChecks) {
     Invoke-Flutter analyze
     Invoke-Flutter test --no-pub
 }
-Invoke-Flutter build windows --release
+$previousVersion = $env:MCD_APP_VERSION
+try {
+    $env:MCD_APP_VERSION = $versionInfo.Label
+    Invoke-Flutter build windows --release "--build-name=$($versionInfo.BuildName)" --build-number=0 "--dart-define=MC_DOWNLOAD_VERSION=$($versionInfo.Label)"
+} finally { $env:MCD_APP_VERSION = $previousVersion }
 $release = Join-Path $PWD 'build\windows\x64\runner\Release'
 # Flutter desktop also needs the Microsoft C++ runtime on a clean PC.
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
@@ -25,7 +30,7 @@ foreach ($dll in 'msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll') {
     Copy-Item (Join-Path $crt.FullName $dll) -Destination $release
 }
 Copy-Item LICENSE, README.md -Destination $release
-$output = Join-Path $PWD 'orther\releases\MC Download.exe'
-& (Join-Path $PSScriptRoot 'package-portable.ps1') -RuntimeDirectory $release -OutputFile $output
+$output = Join-Path $PWD "orther\releases\MC Download $($versionInfo.Label).exe"
+& (Join-Path $PSScriptRoot 'package-portable.ps1') -RuntimeDirectory $release -OutputFile $output -Version $versionInfo.Label
 & (Join-Path $PSScriptRoot 'clean-workspace.ps1')
 Write-Host "Built: $output"

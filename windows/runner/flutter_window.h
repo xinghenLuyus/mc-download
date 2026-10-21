@@ -5,6 +5,11 @@
 #include <flutter/flutter_view_controller.h>
 
 #include <memory>
+#include <vector>
+#include <shellapi.h>
+#include <commctrl.h>
+#include <flutter/method_channel.h>
+#include <flutter/encodable_value.h>
 
 #include "win32_window.h"
 
@@ -23,6 +28,13 @@ class FlutterWindow : public Win32Window {
                          LPARAM const lparam) noexcept override;
 
  private:
+  static LRESULT CALLBACK DropWindowProc(HWND, UINT, WPARAM, LPARAM, UINT_PTR, DWORD_PTR);
+  void AcceptDrop(HDROP drop);
+  void FlushDrops();
+  bool drop_ready_ = false;
+  std::vector<flutter::EncodableValue> pending_drops_;
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> drop_channel_;
+
   // The project to run.
   flutter::DartProject project_;
 

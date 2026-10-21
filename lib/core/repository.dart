@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'models.dart';
+import 'version_metadata.dart';
 
 final _windowsIllegal = RegExp(r'[<>:"|?*\x00-\x1f]');
 final _windowsDevice = RegExp(
@@ -145,8 +146,53 @@ Json mergeManifest(Json parent, Json child) {
       ],
     };
   }
+  if (parent['patches'] != null || child['patches'] != null) {
+    result['patches'] = [
+      ...asList(parent['patches']),
+      ...asList(child['patches']),
+    ];
+  }
   result.remove('inheritsFrom');
   return result;
+}
+
+// HMCL can store a complete version as ordered component patches. Flatten the
+// installation fields for both browsing and repair, preserving component marks.
+Json expandVersionPatches(Json manifest) {
+  final patches = asList(manifest['patches']).map(asMap).toList();
+  if (patches.isEmpty) return manifest;
+  final ordered = patches.indexed.toList()
+    ..sort((a, b) {
+      final priority = ((a.$2['priority'] as num?) ?? 0).compareTo(
+        (b.$2['priority'] as num?) ?? 0,
+      );
+      return priority != 0 ? priority : a.$1.compareTo(b.$1);
+    });
+  var result = {...manifest}..remove('patches');
+  for (final (_, patch) in ordered) {
+    final fields = {...patch}
+      ..remove('id')
+      ..remove('version')
+      ..remove('priority')
+      ..remove('inheritsFrom')
+      ..removeWhere((key, value) => value == null);
+    if (patch['id'] == 'game' && patch['version'] is String) {
+      fields['clientVersion'] = patch['version'];
+    }
+    result = mergeManifest(result, fields);
+  }
+  result['id'] = manifest['id'];
+  result['patches'] = [for (final entry in ordered) entry.$2];
+  if (manifest['inheritsFrom'] != null) {
+    result['inheritsFrom'] = manifest['inheritsFrom'];
+  }
+  return result;
+}
+
+Json _parseVersionManifest(String content) {
+  final decoded = decodeJson(content);
+  if (decoded is! Map) throw const FormatException('版本描述必须是 JSON 对象');
+  return expandVersionPatches(asMap(decoded));
 }
 
 class GameRepository {
@@ -158,7 +204,7 @@ class GameRepository {
     if (!seen.add(id)) throw const FormatException('版本继承存在循环');
     if (seen.length > 20) throw const FormatException('版本继承层级过深');
     final file = File(safeChild(root, 'versions/$id/$id.json'));
-    final json = asMap(decodeJson(await file.readAsString()));
+    final json = _parseVersionManifest(await file.readAsString());
     final parent = json['inheritsFrom'];
     return parent is String
         ? mergeManifest(await readManifest(parent, seen), json)
@@ -177,10 +223,8 @@ class GameRepository {
         throw const FormatException('版本继承存在循环或层级过深');
       }
       if (manifests.containsKey(id)) return manifests[id]!;
-      final own = asMap(
-        decodeJson(
-          await File(safeChild(root, 'versions/$id/$id.json')).readAsString(),
-        ),
+      final own = _parseVersionManifest(
+        await File(safeChild(root, 'versions/$id/$id.json')).readAsString(),
       );
       return manifests[id] = own['inheritsFrom'] is String
           ? mergeManifest(await readCached(own['inheritsFrom'], seen), own)
@@ -202,15 +246,17 @@ class GameRepository {
         Json own = {};
         var error = '';
         try {
-          own = asMap(decodeJson(await file.readAsString()));
+          own = _parseVersionManifest(await file.readAsString());
         } catch (e) {
           error = '版本描述文件缺失或损坏：$e';
         }
         Json merged;
+        var identityKnown = true;
         try {
           merged = await readCached(id);
         } catch (e) {
           merged = own;
+          identityKnown = false;
           if (error.isEmpty) error = '无法解析父版本：$e';
         }
         final meta = File(p.join(entity.path, 'mcd.json'));
@@ -222,61 +268,34 @@ class GameRepository {
         } on Exception {
           if (error.isEmpty) error = '工具的版本记录损坏，已根据原版描述识别；可使用补全文件修复依赖';
         }
-        var game =
-            extra['game'] as String? ??
-            own['clientVersion'] as String? ??
-            merged['clientVersion'] as String? ??
-            own['inheritsFrom'] as String? ??
-            id;
-        final gameArgs = asList(asMap(merged['arguments'])['game']);
-        final gameFlag = gameArgs.indexOf('--fml.mcVersion');
-        if (gameFlag >= 0 &&
-            gameFlag + 1 < gameArgs.length &&
-            gameArgs[gameFlag + 1] is String) {
-          game = gameArgs[gameFlag + 1];
+        final identified = identifyVersion(merged, extra, id);
+        final loader = identified.components.keys.firstOrNull ?? '';
+        final main = merged['mainClass'];
+        if (loader.isEmpty &&
+            main is String &&
+            main.isNotEmpty &&
+            ![
+              'net.minecraft.client.main.Main',
+              'net.minecraft.client.Minecraft',
+              'com.mojang.rubydung.RubyDung',
+            ].contains(main)) {
+          identityKnown = false;
+          if (error.isEmpty) error = '无法确认自定义启动入口的加载器：$main';
         }
-        var loader = extra['loader'] as String? ?? '';
-        var loaderVersion = extra['loaderVersion'] as String? ?? '';
-        for (final raw in asList(merged['libraries'])) {
-          final name = asMap(raw)['name'] as String? ?? '';
-          final parts = name.split(':');
-          if (parts.length < 3) continue;
-          if (parts[0] == 'net.fabricmc' && parts[1] == 'fabric-loader') {
-            loader = 'Fabric';
-            loaderVersion = parts[2];
-          }
-          if (parts[0] == 'org.quiltmc' && parts[1] == 'quilt-loader') {
-            loader = 'Quilt';
-            loaderVersion = parts[2];
-          }
-          if (parts[0] == 'net.minecraftforge' && parts[1] == 'forge') {
-            loader = 'Forge';
-            loaderVersion = parts[2];
-            if (parts[2].contains('-')) game = parts[2].split('-').first;
-          }
-          if (parts[0] == 'net.neoforged' &&
-              ['neoforge', 'forge'].contains(parts[1])) {
-            loader = 'NeoForge';
-            loaderVersion = parts[2];
-          }
-          if (parts[0] == 'optifine' && parts[1].toLowerCase() == 'optifine') {
-            loader = 'OptiFine';
-            loaderVersion = parts[2].startsWith('${game}_')
-                ? parts[2].substring(game.length + 1)
-                : parts[2];
-          }
-        }
+        final loaderVersion = identified.components[loader] ?? '';
         final content = await detectContent(entity.path, extra);
         result.add(
           LocalVersion(
             root: root,
             id: id,
-            game: game,
+            game: identified.game,
+            components: identified.components,
             loader: loader,
             loaderVersion: loaderVersion,
             contentPath: content.path,
             manifest: merged,
             isolationKnown: content.known,
+            identityKnown: identityKnown,
             error: error,
           ),
         );
@@ -291,6 +310,7 @@ class GameRepository {
             contentPath: root,
             manifest: {},
             isolationKnown: false,
+            identityKnown: false,
             error: '读取版本信息失败：$e',
           ),
         );

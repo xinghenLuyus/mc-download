@@ -1,9 +1,11 @@
 param(
     [Parameter(Mandatory)][string]$RuntimeDirectory,
     [Parameter(Mandatory)][string]$OutputFile,
+    [string]$Version = 'dev',
     [string]$WorkDirectory = (Join-Path $PSScriptRoot '..\orther\cache\portable')
 )
 $ErrorActionPreference = 'Stop'
+$versionInfo = & (Join-Path $PSScriptRoot 'build-version.ps1') -Version $Version
 . (Join-Path $PSScriptRoot 'windows-toolchain.ps1')
 $cmake = Get-WindowsCMake
 $runtime = (Resolve-Path -LiteralPath $RuntimeDirectory).Path
@@ -53,7 +55,7 @@ try {
 } finally { $hash.Dispose() }
 $source = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\windows\bootstrap'))
 $build = Join-Path $work 'build'
-& $cmake -S $source -B $build -A x64 "-DMCD_CAB_PATH=$($cab.Replace('\', '/'))" "-DMCD_MANIFEST_PATH=$($manifestPath.Replace('\', '/'))" "-DMCD_PAYLOAD_ID=$id"
+& $cmake -S $source -B $build -A x64 "-DMCD_CAB_PATH=$($cab.Replace('\', '/'))" "-DMCD_MANIFEST_PATH=$($manifestPath.Replace('\', '/'))" "-DMCD_PAYLOAD_ID=$id" "-DMCD_APP_VERSION=$($versionInfo.Label)" "-DMCD_NUMERIC_VERSION=$($versionInfo.Numeric)"
 if ($LASTEXITCODE -ne 0) { throw 'Portable launcher configuration failed.' }
 & $cmake --build $build --config Release
 if ($LASTEXITCODE -ne 0) { throw 'Portable launcher build failed.' }

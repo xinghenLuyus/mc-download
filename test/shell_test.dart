@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mc_download/app_state.dart';
 import 'package:mc_download/core/models.dart';
+import 'package:mc_download/core/app_version.dart';
 import 'package:mc_download/main.dart';
 import 'package:mc_download/core/discovery.dart';
 import 'package:mc_download/ui/directory_dialog.dart';
@@ -101,6 +102,11 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('下载 Minecraft'), findsOneWidget);
+    expect(find.text(appVersion), findsOneWidget);
+    expect(
+      tester.widget<MaterialApp>(find.byType(MaterialApp)).title,
+      appTitle,
+    );
     expect(tester.takeException(), isNull);
     if (Platform.environment['MCD_PREVIEW'] == '1') {
       await tester.runAsync(() async {

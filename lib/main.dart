@@ -2,10 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'core/platform_support.dart';
+import 'core/app_version.dart';
 import 'app_state.dart';
 import 'ui/shell.dart';
 
-Future<void> main() async {
+Future<void> main(List<String> arguments) async {
   WidgetsFlutterBinding.ensureInitialized();
   LicenseRegistry.addLicense(() async* {
     yield LicenseEntryWithLineBreaks([
@@ -15,7 +16,7 @@ Future<void> main() async {
   try {
     final state = AppState(await applicationDataDirectory());
     await state.initialize();
-    runApp(DownloadApp(state: state));
+    runApp(DownloadApp(state: state, initialArchives: arguments));
   } catch (e) {
     runApp(
       MaterialApp(
@@ -27,7 +28,12 @@ Future<void> main() async {
 
 class DownloadApp extends StatelessWidget {
   final AppState state;
-  const DownloadApp({super.key, required this.state});
+  final List<String> initialArchives;
+  const DownloadApp({
+    super.key,
+    required this.state,
+    this.initialArchives = const [],
+  });
   @override
   Widget build(BuildContext context) {
     ThemeData theme(Brightness brightness) {
@@ -109,12 +115,12 @@ class DownloadApp extends StatelessWidget {
     return AnimatedBuilder(
       animation: state,
       builder: (context, _) => MaterialApp(
-        title: 'MC Download',
+        title: appTitle,
         debugShowCheckedModeBanner: false,
         theme: lightTheme,
         darkTheme: darkTheme,
         themeMode: state.settings.dark ? ThemeMode.dark : ThemeMode.light,
-        home: AppShell(state: state),
+        home: AppShell(state: state, initialArchives: initialArchives),
       ),
     );
   }

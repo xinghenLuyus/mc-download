@@ -17,11 +17,14 @@ Copy-Item -LiteralPath (Join-Path $fixtureBuild 'Release\portable_fixture.exe') 
 $asset = 'data\测试 asset.txt'
 [IO.File]::WriteAllText((Join-Path $payload $asset), 'payload version one')
 $launcher = Join-Path $distribution 'MC Download.exe'
-& (Join-Path $PSScriptRoot 'package-portable.ps1') -RuntimeDirectory $payload -OutputFile $launcher -WorkDirectory (Join-Path $scenario 'package-v1')
+& (Join-Path $PSScriptRoot 'package-portable.ps1') -RuntimeDirectory $payload -OutputFile $launcher -WorkDirectory (Join-Path $scenario 'package-v1') -Version v0.1.0
 $data = Join-Path $distribution '.mcdownload'
 New-Item -ItemType Directory -Force -Path $data | Out-Null
 [IO.File]::WriteAllText((Join-Path $data 'settings.json'), 'settings must survive updates')
 function Assert-True([bool]$Value, [string]$Message) { if (-not $Value) { throw $Message } }
+$versionOne = [Diagnostics.FileVersionInfo]::GetVersionInfo($launcher)
+Assert-True ($versionOne.ProductVersion -eq '0.1.0') 'Portable product version does not match the tag.'
+Assert-True ($versionOne.FileMinorPart -eq 1) 'Portable numeric version does not match the tag.'
 function Start-Portable([string]$Application, [string]$Report, [int]$Hold = 0, [int]$Code = 0) {
     $arguments = '--report "{0}" --hold-ms {1} --exit-code {2} --text "a b" --trailing "C:\space dir\\" --quoted "say \"hello\""' -f $Report, $Hold, $Code
     return Start-Process -FilePath $Application -ArgumentList $arguments -WorkingDirectory $unrelated -PassThru
@@ -74,7 +77,10 @@ Assert-True ((Get-ChildItem -LiteralPath (Join-Path $data 'runtime') -Directory)
 # Different EXE names model two downloaded versions in the same portable folder.
 [IO.File]::WriteAllText((Join-Path $payload $asset), 'payload version two')
 $updated = Join-Path $distribution 'MC Download updated.exe'
-& (Join-Path $PSScriptRoot 'package-portable.ps1') -RuntimeDirectory $payload -OutputFile $updated -WorkDirectory (Join-Path $scenario 'package-v2')
+& (Join-Path $PSScriptRoot 'package-portable.ps1') -RuntimeDirectory $payload -OutputFile $updated -WorkDirectory (Join-Path $scenario 'package-v2') -Version v0.2.0-rc.1
+$versionTwo = [Diagnostics.FileVersionInfo]::GetVersionInfo($updated)
+Assert-True ($versionTwo.ProductVersion -eq '0.2.0-rc.1') 'Portable prerelease label was lost.'
+Assert-True ($versionTwo.FileMinorPart -eq 2) 'Portable prerelease numeric version was lost.'
 $oldReport = Join-Path $scenario 'old active.txt'
 $old = Start-Portable $launcher $oldReport 2000
 Await-Report $oldReport

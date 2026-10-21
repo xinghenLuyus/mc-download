@@ -27,7 +27,10 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   FlutterWindow window(project);
   Win32Window::Point origin(10, 10);
   Win32Window::Size size(1280, 720);
-  if (!window.Create(L"MC Download", origin, size)) {
+  const std::string version = MCD_APP_VERSION;
+  std::wstring title = L"MC Download ";
+  title.append(version.begin(), version.end());
+  if (!window.Create(title.c_str(), origin, size)) {
     return EXIT_FAILURE;
   }
   window.SetQuitOnClose(true);
