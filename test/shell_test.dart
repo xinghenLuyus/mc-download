@@ -432,4 +432,49 @@ void main() {
     },
     variant: TargetPlatformVariant.only(TargetPlatform.windows),
   );
+  for (final key in ['', 'personal-key']) {
+    testWidgets(
+      'resource categories default to ${key.isEmpty ? 'Modrinth without a key' : 'CurseForge with a key'}',
+      (tester) async {
+        tester.view.physicalSize = const Size(1120, 720);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        late Directory directory;
+        late AppState state;
+        await tester.runAsync(() async {
+          directory = await Directory.systemTemp.createTemp(
+            'mcd-resource-default-',
+          );
+          state = AppState(
+            directory.path,
+            discovery: ControlledDiscovery(),
+            javaDiscovery: () async => [],
+          );
+          await state.initialize(remote: false);
+          state.settings.curseKey = key;
+          state.resources = FixtureResources(state.network);
+        });
+        await tester.pumpWidget(DownloadApp(state: state));
+        await tester.pumpAndSettle();
+        for (final category in ['整合包', 'Mod', '资源包', '光影包', '数据包', '世界']) {
+          await tester.tap(find.text(category));
+          await tester.pumpAndSettle();
+          expect(
+            find.text(key.isEmpty ? 'Modrinth' : 'CurseForge'),
+            findsOneWidget,
+          );
+          expect(find.text('Resource 0'), findsOneWidget);
+          expect(tester.takeException(), isNull);
+        }
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.runAsync(() async {
+          await state.save();
+          state.dispose();
+          await directory.delete(recursive: true);
+        });
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.windows),
+    );
+  }
 }

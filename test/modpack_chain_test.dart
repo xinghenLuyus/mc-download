@@ -9,6 +9,7 @@ import 'package:mc_download/core/installer.dart';
 import 'package:mc_download/app_state.dart';
 import 'package:mc_download/core/discovery.dart';
 import 'package:mc_download/core/modpacks.dart';
+import 'package:mc_download/core/manual_downloads.dart';
 import 'package:mc_download/core/models.dart';
 import 'package:mc_download/core/network.dart';
 import 'package:mc_download/core/repository.dart';
@@ -400,7 +401,7 @@ void main() {
       final info = await packs.prepareImport(archive), task = job('retry');
       await expectLater(
         packs.install(info, getRoot(), 'retry-pack', task),
-        throwsA(isA<HttpException>()),
+        throwsA(isA<ManualFilesRequired>()),
       );
       expect(
         await Directory(p.join(getRoot(), 'versions/retry-pack')).exists(),
@@ -569,11 +570,7 @@ void main() {
       await expectLater(
         install(restricted, 'restricted-pack'),
         throwsA(
-          isA<StateError>().having(
-            (e) => e.message,
-            'manual download guidance',
-            contains('restricted'),
-          ),
+          isA<ManualFilesRequired>().having((e) => e.count, 'missing files', 1),
         ),
       );
       expect(
@@ -645,6 +642,182 @@ void main() {
         await state.save();
         state.dispose();
       }
+    },
+  );
+  test(
+    'CurseForge null URLs, duplicate references, optional files and MD5 install through the complete chain',
+    () async {
+      final payload = utf8.encode('fallback payload');
+      for (final id in [12345678, 12345679]) {
+        json('https://api.curseforge.com/v1/mods/8/files/$id', {
+          'data': {
+            'id': id,
+            'modId': 8,
+            'fileName': '$id.jar',
+            'downloadUrl': null,
+            'fileLength': 0,
+            'hashes': [
+              {'algo': 2, 'value': md5.convert(payload).toString()},
+            ],
+          },
+        });
+        responses['https://edge.forgecdn.net/files/${id ~/ 1000}/${id % 1000}/$id.jar'] =
+            payload;
+      }
+      json('https://api.curseforge.com/v1/mods/8', {
+        'data': {'classId': 6},
+      });
+      final archive = await zip('fallback.zip', {
+        'manifest.json': {
+          'minecraft': {'version': '1.20.1'},
+          'files': [
+            {'projectID': 8, 'fileID': 12345678},
+            {'projectID': 8, 'fileID': 12345678},
+            {'projectID': 8, 'fileID': 12345679, 'required': false},
+          ],
+        },
+      });
+      final info = await packs.prepareImport(archive);
+      expect(info.optionalFiles.single.id, 'cf:8:12345679');
+      final task = job('fallback')
+        ..request['optionalFiles'] = ['cf:8:12345679'];
+      await packs.install(info, getRoot(), 'fallback', task);
+      final folder = p.join(getRoot(), 'versions', 'fallback', 'mods');
+      expect(await File(p.join(folder, '12345678.jar')).readAsBytes(), payload);
+      expect(await File(p.join(folder, '12345679.jar')).readAsBytes(), payload);
+      expect(
+        client.requests
+            .where((r) => r.uri.path == '/v1/mods/8/files/12345678')
+            .length,
+        1,
+      );
+    },
+  );
+
+  test(
+    'selected mrpack optional files are validated and installed, unselected files remain skipped',
+    () async {
+      final payload = artifact(
+        'https://fixture.invalid/optional.jar',
+        'optional',
+      );
+      final archive = await zip('optional.mrpack', {
+        'modrinth.index.json': mr(
+          files: [
+            {
+              'path': 'mods/optional.jar',
+              'env': {'client': 'optional'},
+              'downloads': [payload['url']],
+              'hashes': {'sha1': payload['sha1']},
+              'fileSize': payload['size'],
+            },
+          ],
+        ),
+      });
+      final info = await packs.prepareImport(archive);
+      expect(info.optionalFiles.single.id, 'mr:mods/optional.jar');
+      await packs.install(info, getRoot(), 'without', job('without'));
+      expect(
+        await File(
+          p.join(getRoot(), 'versions', 'without', 'mods', 'optional.jar'),
+        ).exists(),
+        isFalse,
+      );
+      final task = job('with')
+        ..request['optionalFiles'] = ['mr:mods/optional.jar'];
+      await packs.install(info, getRoot(), 'with', task);
+      expect(
+        await File(
+          p.join(getRoot(), 'versions', 'with', 'mods', 'optional.jar'),
+        ).readAsString(),
+        'optional',
+      );
+    },
+  );
+
+  test(
+    'manual completion resumes a staged pack without redownloading verified files or metadata',
+    () async {
+      final payload = utf8.encode('manual payload');
+      json('https://api.curseforge.com/v1/mods/8', {
+        'data': {'classId': 6},
+      });
+      json('https://api.curseforge.com/v1/mods/8/files/123456', {
+        'data': {
+          'id': 123456,
+          'modId': 8,
+          'fileName': 'manual.jar',
+          'downloadUrl': null,
+          'hashes': [
+            {'algo': 1, 'value': sha1.convert(payload).toString()},
+          ],
+          'fileLength': payload.length,
+        },
+      });
+      final archive = await zip('manual.zip', {
+        'manifest.json': {
+          'minecraft': {'version': '1.20.1'},
+          'files': [
+            {'projectID': 8, 'fileID': 123456},
+          ],
+        },
+      });
+      final info = await packs.prepareImport(archive);
+      final task = job('manual')..request['root'] = getRoot();
+      await expectLater(
+        packs.install(info, getRoot(), 'manual', task),
+        throwsA(isA<ManualFilesRequired>()),
+      );
+      expect(
+        await Directory(p.join(getRoot(), 'versions', 'manual')).exists(),
+        isFalse,
+      );
+      final queries = client.requests.length;
+      task.status = JobStatus.paused;
+      final local = File(p.join(temp.path, 'manual.jar'));
+      await local.writeAsBytes(payload);
+      expect(await importManualFiles(task, [local.path]), 1);
+      task.status = JobStatus.running;
+      await packs.install(info, getRoot(), 'manual', task);
+      expect(client.requests.length, queries);
+      expect(
+        await File(
+          p.join(getRoot(), 'versions', 'manual', 'mods', 'manual.jar'),
+        ).readAsBytes(),
+        payload,
+      );
+    },
+  );
+
+  test(
+    'missing CurseForge metadata is aggregated instead of hiding later failures or publishing a partial pack',
+    () async {
+      final archive = await zip('missing.zip', {
+        'manifest.json': {
+          'minecraft': {'version': '1.20.1'},
+          'files': [
+            {'projectID': 91, 'fileID': 10},
+            {'projectID': 92, 'fileID': 11},
+          ],
+        },
+      });
+      final info = await packs.prepareImport(archive), task = job('missing');
+      await expectLater(
+        packs.install(info, getRoot(), 'missing', task),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'missing count',
+            contains('2 个'),
+          ),
+        ),
+      );
+      expect(task.logs.join(), contains('项目 91'));
+      expect(task.logs.join(), contains('项目 92'));
+      expect(
+        await Directory(p.join(getRoot(), 'versions', 'missing')).exists(),
+        isFalse,
+      );
     },
   );
 }

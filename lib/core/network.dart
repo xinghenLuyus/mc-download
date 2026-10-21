@@ -15,7 +15,8 @@ bool isCurseForgeEndpoint(Uri uri) =>
 
 class CurseForgeAccessException implements Exception {
   final String message;
-  const CurseForgeAccessException(this.message);
+  final int? statusCode;
+  const CurseForgeAccessException(this.message, {this.statusCode});
   @override
   String toString() => message;
 }
@@ -138,11 +139,13 @@ class NetworkService {
     if (status == 401) {
       throw const CurseForgeAccessException(
         'CurseForge 鉴权失败（401）：API Key 无效、已失效或未获授权，请在设置中检查 Key 并重新验证。',
+        statusCode: 401,
       );
     }
     if (status == 403) {
       throw const CurseForgeAccessException(
         'CurseForge 拒绝访问（403）：请检查 API Key 的权限；作者限制第三方下载的文件需在官网手动获取后导入。',
+        statusCode: 403,
       );
     }
   }
@@ -549,7 +552,11 @@ class NetworkService {
           }
           active?.abort();
           job.check();
-          if (e is CurseForgeAccessException) rethrow;
+          if (e is CurseForgeAccessException) {
+            if (e.statusCode != 403) rethrow;
+            last = e;
+            break;
+          }
           last = e;
           job.log('重试 ${attempt + 1}/3 · ${safeUrl(url)} · $e');
           await Future<void>.delayed(
@@ -566,7 +573,11 @@ class NetworkService {
     throw HttpException('下载失败 ${item.path}：$last');
   }
 
-  Future<void> batch(List<DownloadFile> files, DownloadJob job) async {
+  Future<void> batch(
+    List<DownloadFile> files,
+    DownloadJob job, {
+    Future<bool> Function(DownloadFile, Object)? onFailure,
+  }) async {
     job.check();
     for (final file in files) {
       for (final url in file.urls) {
@@ -600,7 +611,14 @@ class NetworkService {
               await download(item, job);
               job.completedFiles++;
             } catch (e) {
-              failure ??= e;
+              try {
+                job.check();
+                if (onFailure == null || !await onFailure(item, e)) {
+                  failure ??= e;
+                }
+              } catch (terminal) {
+                failure ??= terminal;
+              }
             }
           }
         }),

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../app_state.dart';
 import '../core/models.dart';
 import 'common.dart';
+import 'manual_download_dialog.dart';
 
 class TasksPage extends StatelessWidget {
   final AppState state;
@@ -96,6 +97,18 @@ class TasksPage extends StatelessWidget {
                                             () async => state.retry(job),
                                           ),
                                     child: const Text('继续 / 重试'),
+                                  ),
+                                if (!job.active &&
+                                    asList(
+                                      job.request['missingFiles'],
+                                    ).isNotEmpty)
+                                  TextButton(
+                                    onPressed: () => showManualDownloads(
+                                      context,
+                                      state,
+                                      job,
+                                    ),
+                                    child: const Text('补齐文件'),
                                   ),
                                 IconButton(
                                   tooltip: '查看日志',

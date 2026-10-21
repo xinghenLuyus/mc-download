@@ -177,8 +177,9 @@ class _GameDownloadViewState extends State<GameDownloadView> {
                             width: 36,
                             height: 36,
                             decoration: BoxDecoration(
-                              color: Theme.of(context).colorScheme.primary
-                                  .withValues(alpha: .07),
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.primary.withValues(alpha: .07),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Icon(
@@ -528,7 +529,8 @@ class ResourceBrowser extends StatefulWidget {
 class _ResourceBrowserState extends State<ResourceBrowser> {
   final query = TextEditingController();
   final game = TextEditingController();
-  String provider = 'Modrinth', loader = '';
+  late String provider;
+  String loader = '';
   String? target;
   List<Json> rows = [];
   bool loading = false, configureKey = false, showFilters = false;
@@ -545,7 +547,7 @@ class _ResourceBrowserState extends State<ResourceBrowser> {
       game.text = selected!.game;
       loader = selected!.loader;
     }
-    if (widget.kind == 'world') provider = 'CurseForge';
+    provider = s.settings.defaultResourceProvider;
     load();
   }
 
@@ -577,7 +579,11 @@ class _ResourceBrowserState extends State<ResourceBrowser> {
       if (mounted && generation == token) {
         setState(() {
           error = '$e';
-          configureKey = e is CurseForgeAccessException;
+          configureKey =
+              e is CurseForgeAccessException ||
+              (widget.kind == 'world' &&
+                  provider == 'Modrinth' &&
+                  s.settings.curseKey.trim().isEmpty);
           rows = [];
         });
       }
@@ -586,8 +592,12 @@ class _ResourceBrowserState extends State<ResourceBrowser> {
     }
   }
 
-  Future<void> importPack() =>
-      importModpack(context, widget.state, onTask: widget.onTask);
+  Future<void> importPack() => importModpack(
+    context,
+    widget.state,
+    onTask: widget.onTask,
+    onSettings: widget.onSettings,
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -821,8 +831,9 @@ class _ResourceBrowserState extends State<ResourceBrowser> {
                             width: 40,
                             height: 40,
                             decoration: BoxDecoration(
-                              color: Theme.of(context).colorScheme.primary
-                                  .withValues(alpha: .08),
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.primary.withValues(alpha: .08),
                               borderRadius: BorderRadius.circular(10),
                             ),
                             child: Icon(

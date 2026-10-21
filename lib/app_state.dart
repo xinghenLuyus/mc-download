@@ -10,6 +10,7 @@ import 'core/repository.dart';
 import 'core/installer.dart';
 import 'core/resources.dart';
 import 'core/modpacks.dart';
+import 'core/manual_downloads.dart';
 import 'core/discovery.dart';
 import 'core/java_runtime.dart';
 
@@ -98,18 +99,18 @@ class AppState extends ChangeNotifier {
     try {
       if (await tasksFile.exists()) {
         final data = decodeJson(await tasksFile.readAsString());
-        jobs = asList(data is Map ? data['tasks'] : data)
-            .map((e) => DownloadJob.fromJson(asMap(e)))
-            .toList();
+        jobs = asList(
+          data is Map ? data['tasks'] : data,
+        ).map((e) => DownloadJob.fromJson(asMap(e))).toList();
       }
     } catch (_) {
       try {
         final data = asMap(
           decodeJson(await File('${tasksFile.path}.bak').readAsString()),
         );
-        jobs = asList(data['tasks'])
-            .map((e) => DownloadJob.fromJson(asMap(e)))
-            .toList();
+        jobs = asList(
+          data['tasks'],
+        ).map((e) => DownloadJob.fromJson(asMap(e))).toList();
         recoveryNotice = '${recoveryNotice ?? ''} 任务文件损坏，已从备份恢复。'.trim();
       } catch (_) {
         recoveryNotice = '${recoveryNotice ?? ''} 任务文件无法读取，原文件已保留。'.trim();
@@ -389,6 +390,11 @@ class AppState extends ChangeNotifier {
       job.status = JobStatus.completed;
       job.stage = '已完成';
       job.log('任务完成');
+    } on ManualFilesRequired catch (e) {
+      job.status = JobStatus.paused;
+      job.stage = '等待手动补齐 ${e.count} 个文件';
+      job.error = '$e';
+      job.log('$e');
     } on JobPaused {
       job.stage = '已暂停，可继续';
     } on JobCancelled {

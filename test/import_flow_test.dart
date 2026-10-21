@@ -20,10 +20,12 @@ class EmptyDiscovery extends GameDirectoryDiscovery {
 class ImportFixturePacks extends ModpackService {
   final String cachedFile;
   String? source;
+  Completer<void>? gate;
   ImportFixturePacks(super.installer, super.resources, this.cachedFile);
   @override
   Future<PackInfo> prepareImport(String file) async {
     source = file;
+    await gate?.future;
     return PackInfo(
       file: cachedFile,
       prefix: '',
@@ -127,9 +129,26 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.text('安装本地整合包'), findsOneWidget);
         expect(find.textContaining('Fabric 0.16.9'), findsOneWidget);
+        expect(find.text('安装名称'), findsOneWidget);
+        expect(find.text('游戏目录'), findsOneWidget);
         expect(state.jobs, isEmpty);
         if (confirm) {
-          await tester.tap(find.text('确定'));
+          await tester.enterText(
+            find.widgetWithText(TextFormField, '安装名称'),
+            'CON',
+          );
+          await tester.tap(find.text('开始安装'));
+          await tester.pumpAndSettle();
+          expect(state.jobs, isEmpty);
+          expect(find.textContaining('不符合 Windows'), findsOneWidget);
+          await tester.enterText(
+            find.widgetWithText(TextFormField, '安装名称'),
+            'Dropped pack',
+          );
+          await tester.runAsync(() async {
+            await tester.tap(find.text('开始安装'));
+            await state.queued.future;
+          });
           await tester.pumpAndSettle();
           final job = state.jobs.single;
           expect(job.kind, 'pack');
@@ -152,4 +171,49 @@ void main() {
       variant: TargetPlatformVariant.only(TargetPlatform.windows),
     );
   }
+  testWidgets(
+    'import page opens while parsing and cancellation ignores late results',
+    (tester) async {
+      tester.view.physicalSize = const Size(1120, 720);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      late Directory directory;
+      late ImportFixtureState state;
+      late ImportFixturePacks packs;
+      await tester.runAsync(() async {
+        directory = await Directory.systemTemp.createTemp(
+          'mcd-import-pending-',
+        );
+        state = ImportFixtureState('${directory.path}/.mcdownload');
+        await state.initialize(remote: false);
+        packs = ImportFixturePacks(
+          state.installer,
+          state.resources,
+          'cached.zip',
+        )..gate = Completer<void>();
+        state.packs = packs;
+      });
+      await tester.pumpWidget(
+        DownloadApp(state: state, initialArchives: const ['pack.zip']),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.text('正在读取并检查整合包…'), findsOneWidget);
+      await tester.tap(find.text('取消'));
+      await tester.pumpAndSettle();
+      packs.gate!.complete();
+      await tester.pumpAndSettle();
+      expect(find.text('安装本地整合包'), findsNothing);
+      expect(state.jobs, isEmpty);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.runAsync(() async {
+        await state.save();
+        state.dispose();
+        await directory.delete(recursive: true);
+      });
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.windows),
+  );
 }

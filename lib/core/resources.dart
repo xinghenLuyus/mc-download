@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import 'models.dart';
 import 'network.dart';
 import 'repository.dart';
+import 'manual_downloads.dart';
 
 class ResourceService {
   final NetworkService network;
@@ -177,16 +178,38 @@ class ResourceService {
 
   Json _cfVersion(Json raw, Json project) {
     final hashes = asList(raw['hashes']);
-    final hash = hashes.where((e) => e['algo'] == 1).firstOrNull;
+    final hash =
+        hashes
+            .where(
+              (e) =>
+                  e['algo'] == 1 &&
+                  RegExp(r'^[a-fA-F0-9]{40}$').hasMatch('${e['value']}'),
+            )
+            .firstOrNull ??
+        hashes
+            .where(
+              (e) =>
+                  e['algo'] == 2 &&
+                  RegExp(r'^[a-fA-F0-9]{32}$').hasMatch('${e['value']}'),
+            )
+            .firstOrNull;
+    final filename = raw['fileName'];
+    if (filename is! String ||
+        filename.contains('/') ||
+        filename.contains('\\')) {
+      throw const FormatException('CurseForge 文件名无效');
+    }
+    safeChild('resource', filename);
+    final size = raw['fileLength'];
     return {
       'id': '${raw['id']}',
       'projectId': '${raw['modId']}',
       'name': raw['displayName'],
       'filename': raw['fileName'],
-      'urls': raw['downloadUrl'] == null ? <String>[] : [raw['downloadUrl']],
+      'urls': curseDownloadUrls(raw['downloadUrl'], '${raw['id']}', filename),
       'hash': hash?['value'],
-      'algorithm': 'sha1',
-      'size': raw['fileLength'],
+      'algorithm': hash?['algo'] == 2 ? 'md5' : 'sha1',
+      'size': size is num && size > 0 ? size.toInt() : null,
       'dependencies': raw['dependencies'],
       'provider': 'CurseForge',
       'kind': project['kind'],
@@ -209,11 +232,18 @@ class ResourceService {
     String file, {
     DownloadJob? job,
   }) async {
+    network.requireCurseForgeKey();
+    final key = '$project:$file';
+    final cache = asMap(job?.request['resolvedPackFiles']);
+    if (cache[key] is Map) return asMap(cache[key]);
     final result = await Future.wait([
       curseFile(project, file, job: job),
       cf('mods/$project', job: job),
     ]);
     final version = asMap(result[0]);
+    if (version['id'] != file || version['projectId'] != project) {
+      throw const FormatException('CurseForge 返回了不匹配的项目或文件 ID');
+    }
     final metadata = asMap(asMap(result[1])['data']);
     version['kind'] = switch (metadata['classId']) {
       6 => 'mod',
@@ -224,7 +254,18 @@ class ResourceService {
         '整合包引用了不支持的 CurseForge 资源类型：${metadata['classId']}（项目 $project）',
       ),
     };
-    version['projectUrl'] = asMap(metadata['links'])['websiteUrl'];
+    final website = asMap(metadata['links'])['websiteUrl'];
+    version['projectUrl'] =
+        website is String && website.startsWith('https://www.curseforge.com/')
+        ? website.replaceAll(RegExp(r'/+$'), '')
+        : 'https://www.curseforge.com/projects/$project';
+    if (job != null) {
+      // Update the shared map after awaiting, so concurrent lookups cannot lose entries.
+      job.request['resolvedPackFiles'] = {
+        ...asMap(job.request['resolvedPackFiles']),
+        key: version,
+      };
+    }
     return version;
   }
 
@@ -242,10 +283,17 @@ class ResourceService {
 
   DownloadFile downloadFile(Json version, String target) {
     if (version['provider'] == 'CurseForge') network.requireCurseForgeKey();
-    final urls = asList(version['urls']).cast<String>();
+    var urls = asList(version['urls']).cast<String>();
+    if (version['provider'] == 'CurseForge' && urls.isEmpty) {
+      urls = curseDownloadUrls(
+        null,
+        '${version['id']}',
+        '${version['filename']}',
+      );
+    }
     if (urls.isEmpty) {
       throw StateError(
-        '作者禁止第三方直接下载，请手动下载并导入：${version['projectUrl'] ?? 'https://www.curseforge.com/minecraft/mc-mods/${version['projectId']}'}',
+        '此文件没有可用下载地址，请从官网获取并导入：${version['projectUrl'] ?? 'https://www.curseforge.com/minecraft/mc-mods/${version['projectId']}'}',
       );
     }
     return DownloadFile(
@@ -348,7 +396,19 @@ class ResourceService {
       }
       job.stage = '下载 ${version['filename']}';
       job.notify();
-      await network.download(descriptor, job);
+      await downloadRecoverably(
+        network,
+        [descriptor],
+        job,
+        target.root,
+        websites: {
+          destination:
+              version['projectUrl'] ??
+              (version['provider'] == 'Modrinth'
+                  ? 'https://modrinth.com/project/${version['projectId']}/version/${version['id']}'
+                  : 'https://www.curseforge.com/projects/${version['projectId']}/files/${version['id']}'),
+        },
+      );
       if (update) {
         for (final entry in index.entries.toList()) {
           final old = asMap(entry.value);
@@ -413,4 +473,39 @@ class ResourceService {
     }
     return updates;
   }
+}
+
+/// Same fallback strategy as the launchers: preserve the API URL, then try
+/// official CDN hosts. Authentication is still recomputed by NetworkService.
+List<String> curseDownloadUrls(dynamic original, String id, String filename) {
+  final number = int.tryParse(id);
+  final result = <String>[];
+  if (original is String && original.trim().isNotEmpty) {
+    final uri = Uri.tryParse(original.trim());
+    if (uri == null ||
+        uri.scheme != 'https' ||
+        uri.host.isEmpty ||
+        uri.userInfo.isNotEmpty) {
+      throw const FormatException('CurseForge 下载地址无效');
+    }
+    result.add(uri.toString());
+  }
+  if (number != null &&
+      number > 0 &&
+      filename.isNotEmpty &&
+      filename != 'null') {
+    if (filename.contains('/') || filename.contains('\\')) {
+      throw const FormatException('CurseForge 文件名无效');
+    }
+    safeChild('resource', filename);
+    for (final host in ['edge.forgecdn.net', 'mediafilez.forgecdn.net']) {
+      result.add(
+        Uri.https(
+          host,
+          '/files/${number ~/ 1000}/${number % 1000}/$filename',
+        ).toString(),
+      );
+    }
+  }
+  return result.toSet().toList();
 }

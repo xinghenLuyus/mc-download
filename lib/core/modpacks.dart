@@ -2,6 +2,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:math' show min;
 import 'package:archive/archive.dart';
 import 'package:archive/archive_io.dart' show ZipFileEncoder;
 import 'package:path/path.dart' as p;
@@ -11,6 +12,7 @@ import 'network.dart';
 import 'repository.dart';
 import 'resources.dart';
 import 'version_metadata.dart';
+import 'manual_downloads.dart';
 
 class PackInfo {
   final String file, prefix, format, name, game, loader, loaderVersion;
@@ -25,6 +27,17 @@ class PackInfo {
     this.loaderVersion = '',
     required this.manifest,
   });
+  List<({String id, String name})> get optionalFiles => [
+    for (final raw in asList(manifest['files']))
+      if (format == 'Modrinth' &&
+          asMap(asMap(raw)['env'])['client'] == 'optional')
+        (id: 'mr:${asMap(raw)['path']}', name: '${asMap(raw)['path']}')
+      else if (format == 'CurseForge' && asMap(raw)['required'] == false)
+        (
+          id: 'cf:${asMap(raw)['projectID']}:${asMap(raw)['fileID']}',
+          name: '项目 ${asMap(raw)['projectID']} · 文件 ${asMap(raw)['fileID']}',
+        ),
+  ];
 }
 
 class ModpackService {
@@ -317,7 +330,7 @@ class ModpackService {
     return info;
   }
 
-  void validateManifest(PackInfo info) {
+  void validateManifest(PackInfo info, {Set<String> optionalFiles = const {}}) {
     final paths = <String>{};
     if (info.format == 'Modrinth') {
       if (info.manifest['files'] is! List) {
@@ -329,7 +342,11 @@ class ModpackService {
         if (!['required', 'optional', 'unsupported'].contains(client)) {
           throw const FormatException('mrpack 客户端环境无效');
         }
-        if (client != 'required') continue;
+        if (client == 'unsupported' ||
+            (client == 'optional' &&
+                !optionalFiles.contains('mr:${file['path']}'))) {
+          continue;
+        }
         final path = file['path'];
         if (path is! String) throw const FormatException('mrpack 文件路径无效');
         safeChild('pack', path);
@@ -369,6 +386,18 @@ class ModpackService {
       if (info.manifest['files'] is! List) {
         throw const FormatException('CurseForge 包缺少 files 清单');
       }
+      for (final raw in asList(info.manifest['files'])) {
+        final f = asMap(raw);
+        for (final key in ['projectID', 'fileID']) {
+          final value = f[key];
+          if (value is! int || value <= 0) {
+            throw FormatException('CurseForge 文件清单的 $key 无效：$value');
+          }
+        }
+        if (f['required'] != null && f['required'] is! bool) {
+          throw const FormatException('CurseForge required 必须是布尔值');
+        }
+      }
       final declaredLoaders = asMap(info.manifest['minecraft'])['modLoaders'];
       if (declaredLoaders != null && declaredLoaders is! List) {
         throw const FormatException('CurseForge 加载器清单无效');
@@ -391,7 +420,54 @@ class ModpackService {
     }
   }
 
-  void checkAccess(PackInfo info) {
+  Future<List<Json>> resolveCurseFiles(
+    List<Json> references,
+    DownloadJob job,
+  ) async {
+    final versions = List<Json?>.filled(references.length, null);
+    var cursor = 0, completed = 0;
+    Object? terminal;
+    final errors = <String>[];
+    job.totalFiles = references.length;
+    job.completedFiles = 0;
+    await Future.wait(
+      List.generate(min(4, references.length), (_) async {
+        while (cursor < references.length && terminal == null) {
+          final index = cursor++;
+          final ref = references[index];
+          try {
+            job.check();
+            versions[index] = await resources.cursePackFile(
+              '${ref['projectID']}',
+              '${ref['fileID']}',
+              job: job,
+            );
+            job.completedFiles = ++completed;
+            job.notify();
+          } catch (e) {
+            if (e is JobPaused ||
+                e is JobCancelled ||
+                e is CurseForgeAccessException) {
+              terminal ??= e;
+            } else {
+              final text = '项目 ${ref['projectID']} / 文件 ${ref['fileID']}：$e';
+              errors.add(text);
+              job.log(text);
+            }
+          }
+        }
+      }),
+    );
+    if (terminal != null) throw terminal!;
+    if (errors.isNotEmpty) {
+      throw StateError(
+        '有 ${errors.length} 个整合包文件无法读取元数据（可能已删除或暂时不可访问），请查看日志并重试。必需文件不会被静默跳过。\n${errors.take(3).join('\n')}',
+      );
+    }
+    return versions.cast<Json>();
+  }
+
+  void checkAccess(PackInfo info, {Set<String> optionalFiles = const {}}) {
     if (info.format == 'CurseForge' ||
         (info.format == 'MCBBS' &&
             asList(
@@ -400,10 +476,9 @@ class ModpackService {
         (info.format == 'Modrinth' &&
             asList(info.manifest['files']).any(
               (f) =>
-                  ![
-                    'unsupported',
-                    'optional',
-                  ].contains(asMap(asMap(f)['env'])['client']) &&
+                  asMap(asMap(f)['env'])['client'] != 'unsupported' &&
+                  (asMap(asMap(f)['env'])['client'] != 'optional' ||
+                      optionalFiles.contains('mr:${asMap(f)['path']}')) &&
                   asList(
                     asMap(f)['downloads'],
                   ).any((url) => isCurseForgeEndpoint(Uri.parse('$url'))),
@@ -420,8 +495,11 @@ class ModpackService {
   ) async {
     final archive = await readZip(info.file);
     job.check();
-    checkAccess(info);
-    validateManifest(info);
+    final optionalFiles = asList(
+      job.request['optionalFiles'],
+    ).cast<String>().toSet();
+    checkAccess(info, optionalFiles: optionalFiles);
+    validateManifest(info, optionalFiles: optionalFiles);
     final spec = InstallSpec(
       root: root,
       id: id,
@@ -437,11 +515,19 @@ class ModpackService {
         job.stage = '安装整合包文件';
         job.notify();
         final files = <DownloadFile>[];
+        final websites = <String, String>{};
+        job.totalFiles = 0;
+        job.completedFiles = 0;
+        job.currentFileSize = null;
+        job.currentFileReceived = 0;
+        job.request.remove('missingFiles');
         if (info.format == 'Modrinth') {
           for (final raw in asList(info.manifest['files'])) {
             final f = asMap(raw);
             final env = asMap(f['env']);
-            if (env['client'] == 'unsupported' || env['client'] == 'optional') {
+            if (env['client'] == 'unsupported' ||
+                (env['client'] == 'optional' &&
+                    !optionalFiles.contains('mr:${f['path']}'))) {
               job.log('跳过客户端 ${env['client']} 文件：${f['path']}');
               continue;
             }
@@ -459,24 +545,51 @@ class ModpackService {
             );
           }
         } else if (info.format == 'CurseForge') {
+          job.stage = '读取整合包资源信息';
+          job.notify();
+          final references = <String, Json>{};
           for (final raw in asList(info.manifest['files'])) {
-            job.check();
             final f = asMap(raw);
-            if (f['required'] == false) continue;
-            final version = await resources.cursePackFile(
-              '${f['projectID']}',
-              '${f['fileID']}',
-              job: job,
-            );
+            final key = '${f['projectID']}:${f['fileID']}';
+            if (f['required'] != false || optionalFiles.contains('cf:$key')) {
+              references[key] = f;
+            }
+          }
+          for (final version in await resolveCurseFiles(
+            references.values.toList(),
+            job,
+          )) {
             final target = safeChild(
               content,
               '${packResourceDirectory(version)}/${version['filename']}',
             );
             await guardPath(root, target);
             files.add(resources.downloadFile(version, target));
+            websites[target] =
+                '${version['projectUrl']}/files/${version['id']}';
           }
         }
-        await installer.network.batch(files, job);
+        final targets = <String, DownloadFile>{};
+        for (final file in files) {
+          final key = file.path.toLowerCase();
+          final old = targets[key];
+          if (old != null &&
+              (old.hash != file.hash ||
+                  old.size != file.size ||
+                  old.urls.join() != file.urls.join())) {
+            throw StateError('整合包包含冲突的同名文件：${p.basename(file.path)}');
+          }
+          targets[key] = file;
+        }
+        job.stage = '下载整合包资源';
+        job.notify();
+        await downloadRecoverably(
+          installer.network,
+          targets.values.toList(),
+          job,
+          root,
+          websites: websites,
+        );
         final directories = switch (info.format) {
           'Modrinth' => ['overrides/', 'client-overrides/'],
           'CurseForge' => [
@@ -546,7 +659,7 @@ class ModpackService {
               throw StateError('未知 MCBBS 文件类型 ${file['type']}');
             }
           }
-          await installer.network.batch(additions, job);
+          await downloadRecoverably(installer.network, additions, job, root);
         }
         final extra = <String, dynamic>{};
         if (info.format == 'MCBBS') {

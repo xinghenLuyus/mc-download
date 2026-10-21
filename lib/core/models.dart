@@ -36,6 +36,9 @@ class AppSettings {
   Map<String, bool> rootIsolation = {};
   bool dark = false;
 
+  String get defaultResourceProvider =>
+      curseKey.trim().isEmpty ? 'Modrinth' : 'CurseForge';
+
   bool isolationFor(String root) => rootIsolation[root] ?? isolate;
 
   AppSettings();

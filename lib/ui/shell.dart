@@ -66,6 +66,14 @@ class _AppShellState extends State<AppShell> {
       context,
       s,
       file: archives.single,
+      onSettings: () {
+        if (mounted) {
+          setState(() {
+            page = 3;
+            focusCurseForge = true;
+          });
+        }
+      },
       onTask: () {
         if (mounted) setState(() => page = 2);
       },
