@@ -3,7 +3,12 @@
 #include <windows.h>
 #include <shellapi.h>
 #include <bcrypt.h>
+// FDI defines the legacy HUGE keyword as an empty macro. Keep it local to
+// this header: otherwise UCRT's later `extern double HUGE;` loses its name.
+#pragma push_macro("HUGE")
+#undef HUGE
 #include <fdi.h>
+#pragma pop_macro("HUGE")
 #include <fcntl.h>
 #include <io.h>
 #include <sys/stat.h>
