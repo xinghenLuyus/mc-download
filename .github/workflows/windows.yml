@@ -1,0 +1,25 @@
+name: Windows build
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+  pull_request:
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.7'
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test --no-pub
+      - run: ./scripts/build-windows.ps1 -SkipChecks
+        shell: pwsh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MC-Download-Windows-x64
+          path: orther/releases/MC-Download-Windows-x64.zip
