@@ -130,9 +130,14 @@ final class _ProxyInfo extends Struct {
 /// and input strings use the process heap (HeapFree). Keep ownership explicit.
 class _WinHttp {
   final _kernel = DynamicLibrary.open('kernel32.dll');
-  late final _library = DynamicLibrary.open(
-    '${Platform.environment['SystemRoot'] ?? r'C:\Windows'}\\System32\\winhttp.dll',
-  );
+  late final _library = _bridge();
+  DynamicLibrary _bridge() {
+    final executable = DynamicLibrary.process();
+    if (executable.providesSymbol('McdProxyResolve')) return executable;
+    // Standalone library is built only for flutter_tester / native API tests.
+    return DynamicLibrary.open('mc_download_proxy.dll');
+  }
+
   late final _heap = _kernel
       .lookupFunction<Pointer<Void> Function(), Pointer<Void> Function()>(
         'GetProcessHeap',
@@ -152,39 +157,19 @@ class _WinHttp {
         Pointer<Void> Function(Pointer<Void>),
         Pointer<Void> Function(Pointer<Void>)
       >('GlobalFree');
-  late final _error = _kernel.lookupFunction<Uint32 Function(), int Function()>(
-    'GetLastError',
-  );
   late final _getConfig = _library
       .lookupFunction<
-        Int32 Function(Pointer<_IeConfig>),
+        Uint32 Function(Pointer<_IeConfig>),
         int Function(Pointer<_IeConfig>)
-      >('WinHttpGetIEProxyConfigForCurrentUser');
+      >('McdProxyConfig');
   late final _open = _library
       .lookupFunction<
-        Pointer<Void> Function(
-          Pointer<Uint16>,
-          Uint32,
-          Pointer<Uint16>,
-          Pointer<Uint16>,
-          Uint32,
-        ),
-        Pointer<Void> Function(
-          Pointer<Uint16>,
-          int,
-          Pointer<Uint16>,
-          Pointer<Uint16>,
-          int,
-        )
-      >('WinHttpOpen');
-  late final _timeouts = _library
-      .lookupFunction<
-        Int32 Function(Pointer<Void>, Int32, Int32, Int32, Int32),
-        int Function(Pointer<Void>, int, int, int, int)
-      >('WinHttpSetTimeouts');
+        Uint32 Function(Pointer<Uint16>, Pointer<Pointer<Void>>),
+        int Function(Pointer<Uint16>, Pointer<Pointer<Void>>)
+      >('McdProxyOpen');
   late final _getProxy = _library
       .lookupFunction<
-        Int32 Function(
+        Uint32 Function(
           Pointer<Void>,
           Pointer<Uint16>,
           Pointer<_AutoOptions>,
@@ -196,12 +181,12 @@ class _WinHttp {
           Pointer<_AutoOptions>,
           Pointer<_ProxyInfo>,
         )
-      >('WinHttpGetProxyForUrl');
+      >('McdProxyResolve');
   late final _close = _library
       .lookupFunction<
-        Int32 Function(Pointer<Void>),
-        int Function(Pointer<Void>)
-      >('WinHttpCloseHandle');
+        Void Function(Pointer<Void>),
+        void Function(Pointer<Void>)
+      >('McdProxyClose');
   final _owned = <Pointer<Void>>[];
 
   Pointer<T> _memory<T extends NativeType>(int bytes) {
@@ -238,11 +223,11 @@ class _WinHttp {
     Pointer<Void> session = nullptr;
     try {
       config = _memory<_IeConfig>(sizeOf<_IeConfig>());
-      if (_getConfig(config) == 0) {
-        final error = _error();
+      final configurationError = _getConfig(config);
+      if (configurationError != 0) {
         // No Internet Options profile is valid on a clean Windows account.
-        if (error == 2) return const SystemProxyResult('DIRECT');
-        throw HttpException('读取 Windows 系统代理失败（$error）');
+        if (configurationError == 2) return const SystemProxyResult('DIRECT');
+        throw HttpException('读取 Windows 系统代理失败（$configurationError）');
       }
       final fixedProxy = _string(config.ref.proxy);
       final fixedBypass = _string(config.ref.bypass);
@@ -253,10 +238,11 @@ class _WinHttp {
           systemProxyRoute(uri, fixedProxy, fixedBypass),
         );
       }
-      session = _open(_wide('MC-Download/$appVersion'), 1, nullptr, nullptr, 0);
-      if (session == nullptr ||
-          _timeouts(session, 5000, 5000, 5000, 5000) == 0) {
-        throw HttpException('初始化 Windows 自动代理失败（${_error()}）');
+      final handle = _memory<Pointer<Void>>(sizeOf<Pointer<Void>>());
+      final openError = _open(_wide('MC-Download/$appVersion'), handle);
+      session = handle.value;
+      if (openError != 0) {
+        throw HttpException('初始化 Windows 自动代理失败（$openError）');
       }
       final options = _memory<_AutoOptions>(sizeOf<_AutoOptions>());
       // Explicit PAC takes precedence over WPAD discovery.
@@ -266,7 +252,8 @@ class _WinHttp {
           ? config.ref.autoConfigUrl
           : nullptr;
       result = _memory<_ProxyInfo>(sizeOf<_ProxyInfo>());
-      if (_getProxy(session, _wide(uri.toString()), options, result) != 0) {
+      final error = _getProxy(session, _wide(uri.toString()), options, result);
+      if (error == 0) {
         return SystemProxyResult(
           result.ref.accessType == 1
               ? 'DIRECT'
@@ -278,7 +265,6 @@ class _WinHttp {
           perUrl: true,
         );
       }
-      final error = _error();
       if (fixedProxy.isNotEmpty) {
         return SystemProxyResult(
           systemProxyRoute(uri, fixedProxy, fixedBypass),

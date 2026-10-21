@@ -33,6 +33,9 @@ jobs:
           cache: true
       - run: flutter pub get
       - run: flutter analyze
+      - name: Verify native WinHTTP error capture
+        run: ./scripts/test-system-proxy.ps1
+        shell: pwsh
       - name: Run regression tests
         run: flutter test --no-pub --reporter expanded "--dart-define=MC_DOWNLOAD_VERSION=$env:APP_VERSION"
         shell: pwsh

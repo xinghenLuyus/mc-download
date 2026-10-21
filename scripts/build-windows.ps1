@@ -9,6 +9,7 @@ function Invoke-Flutter {
 Invoke-Flutter pub get
 if (-not $SkipChecks) {
     Invoke-Flutter analyze
+    & (Join-Path $PSScriptRoot 'test-system-proxy.ps1')
     Invoke-Flutter test --no-pub
 }
 $previousVersion = $env:MCD_APP_VERSION
