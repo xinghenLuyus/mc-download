@@ -28,7 +28,7 @@ class AppSettings {
   String mirrorUrl = 'https://bmclapi2.bangbang93.com';
   bool fallback = true;
   int concurrency = 8;
-  String javaPath = 'java';
+  String javaPath = 'auto';
   String curseKey = '';
   String arch = 'x64';
   bool isolate = true;

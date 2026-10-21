@@ -9,6 +9,7 @@ import 'core/installer.dart';
 import 'core/resources.dart';
 import 'core/modpacks.dart';
 import 'core/discovery.dart';
+import 'core/java_runtime.dart';
 
 class AppState extends ChangeNotifier {
   final String dataPath;
@@ -26,13 +27,20 @@ class AppState extends ChangeNotifier {
   String? recoveryNotice;
   int discoveredAtStartup = 0;
   final GameDirectoryDiscovery discovery;
+  final Future<List<JavaRuntime>> Function()? javaDiscovery;
   String? runningId;
   Timer? _notifyTimer, _saveTimer;
   Future<void> _saving = Future.value();
   bool _disposed = false;
   int _scanGeneration = 0;
-  AppState(this.dataPath, {GameDirectoryDiscovery? discovery})
-    : discovery = discovery ?? GameDirectoryDiscovery();
+  AppState(
+    this.dataPath, {
+    GameDirectoryDiscovery? discovery,
+    this.javaDiscovery,
+  }) : discovery = discovery ?? GameDirectoryDiscovery();
+
+  Future<List<JavaRuntime>> installedJava() =>
+      javaDiscovery?.call() ?? discoverJava(gameRoots: settings.roots);
 
   Future<void> initialize({bool remote = true}) async {
     await Directory(dataPath).create(recursive: true);
@@ -60,7 +68,7 @@ class AppState extends ChangeNotifier {
     }
     if (settings.autoDiscover) {
       for (final candidate in await discovery.defaults(
-        executableDirectory: p.dirname(Platform.resolvedExecutable),
+        executableDirectory: p.dirname(dataPath),
       )) {
         final key = discovery.identity(candidate.path);
         if (!settings.roots.any((r) => discovery.identity(r) == key) &&

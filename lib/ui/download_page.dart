@@ -78,12 +78,13 @@ class _GameDownloadViewState extends State<GameDownloadView> {
         )
         .toList();
     return Padding(
-      padding: const EdgeInsets.all(28),
+      padding: const EdgeInsets.fromLTRB(18, 14, 18, 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SectionHeading(
             '下载 Minecraft',
+            compact: true,
             '选择游戏版本，再按需安装加载器和组件。',
             trailing: IconButton(
               tooltip: '刷新版本列表',
@@ -92,7 +93,7 @@ class _GameDownloadViewState extends State<GameDownloadView> {
             ),
           ),
           const InfoStrip('所有游戏文件直接安装到当前游戏目录，可交给 PCL、HMCL 等启动器使用。'),
-          const SizedBox(height: 22),
+          const SizedBox(height: 10),
           Row(
             children: [
               Expanded(
@@ -118,7 +119,7 @@ class _GameDownloadViewState extends State<GameDownloadView> {
               ),
             ],
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 10),
           Row(
             children: [
               Text('可用版本', style: Theme.of(context).textTheme.titleMedium),
@@ -157,6 +158,7 @@ class _GameDownloadViewState extends State<GameDownloadView> {
                     ),
                   )
                 : Card(
+                    key: const ValueKey('resource-results'),
                     child: ListView.separated(
                       itemCount: rows.length,
                       separatorBuilder: (_, _) =>
@@ -519,7 +521,7 @@ class _ResourceBrowserState extends State<ResourceBrowser> {
   String provider = 'Modrinth', loader = '';
   String? target;
   List<Json> rows = [];
-  bool loading = false, configureKey = false;
+  bool loading = false, configureKey = false, showFilters = false;
   String? error;
   int page = 0, generation = 0;
   AppState get s => widget.state;
@@ -612,12 +614,13 @@ class _ResourceBrowserState extends State<ResourceBrowser> {
       'world': '世界',
     };
     return Padding(
-      padding: const EdgeInsets.all(28),
+      padding: const EdgeInsets.fromLTRB(18, 14, 18, 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SectionHeading(
             '下载${names[widget.kind]}',
+            compact: true,
             '从社区资源平台浏览，安装到指定版本或另存为文件。',
             trailing: widget.kind == 'modpack'
                 ? OutlinedButton.icon(
@@ -676,10 +679,11 @@ class _ResourceBrowserState extends State<ResourceBrowser> {
               ),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 4),
           Row(
             children: [
-              Expanded(
+              SizedBox(
+                width: 230,
                 child: DropdownButtonFormField<String>(
                   key: ValueKey('target:$target'),
                   initialValue: s.localVersions.any((v) => v.id == target)
@@ -717,62 +721,84 @@ class _ResourceBrowserState extends State<ResourceBrowser> {
                 ),
               ),
               const SizedBox(width: 12),
-              SizedBox(
-                width: 130,
-                child: TextField(
-                  controller: game,
-                  decoration: const InputDecoration(
-                    labelText: '游戏版本',
-                    hintText: '全部',
-                  ),
-                  onSubmitted: (_) {
-                    page = 0;
-                    load();
-                  },
+              Expanded(
+                child: Text(
+                  '接口：${provider == 'Modrinth' ? 'api.modrinth.com' : 'api.curseforge.com'} · 文件来自平台原始地址',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall,
                 ),
               ),
-              const SizedBox(width: 12),
-              SizedBox(
-                width: 140,
-                child: DropdownButtonFormField<String>(
-                  key: ValueKey(loader),
-                  isExpanded: true,
-                  initialValue:
-                      [
-                        '',
-                        'Fabric',
-                        'Forge',
-                        'NeoForge',
-                        'Quilt',
-                      ].contains(loader)
-                      ? loader
-                      : '',
-                  decoration: const InputDecoration(labelText: '加载器'),
-                  items: ['', 'Fabric', 'Forge', 'NeoForge', 'Quilt']
-                      .map(
-                        (v) => DropdownMenuItem(
-                          value: v,
-                          child: Text(v.isEmpty ? '全部' : v),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: (v) {
-                    setState(() {
-                      loader = v!;
-                      page = 0;
-                    });
-                    load();
-                  },
+              TextButton.icon(
+                key: const ValueKey('resource-filter-toggle'),
+                onPressed: () => setState(() => showFilters = !showFilters),
+                icon: Icon(
+                  showFilters ? Icons.expand_less : Icons.tune,
+                  size: 16,
+                ),
+                label: Text(
+                  showFilters
+                      ? '收起筛选'
+                      : '筛选${[if (target != null && target!.isNotEmpty) '目标版本', if (game.text.isNotEmpty) game.text, if (loader.isNotEmpty) loader].isEmpty ? '' : ' · 已应用'}',
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 16),
-          Text(
-            '接口来源：${provider == 'Modrinth' ? 'api.modrinth.com' : 'api.curseforge.com'} · 文件来自平台提供的原始下载地址',
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
-          const SizedBox(height: 14),
+          if (showFilters) ...[
+            Row(
+              children: [
+                SizedBox(
+                  width: 130,
+                  child: TextField(
+                    controller: game,
+                    decoration: const InputDecoration(
+                      labelText: '游戏版本',
+                      hintText: '全部',
+                    ),
+                    onSubmitted: (_) {
+                      page = 0;
+                      load();
+                    },
+                  ),
+                ),
+                const SizedBox(width: 12),
+                SizedBox(
+                  width: 140,
+                  child: DropdownButtonFormField<String>(
+                    key: ValueKey(loader),
+                    isExpanded: true,
+                    initialValue:
+                        [
+                          '',
+                          'Fabric',
+                          'Forge',
+                          'NeoForge',
+                          'Quilt',
+                        ].contains(loader)
+                        ? loader
+                        : '',
+                    decoration: const InputDecoration(labelText: '加载器'),
+                    items: ['', 'Fabric', 'Forge', 'NeoForge', 'Quilt']
+                        .map(
+                          (v) => DropdownMenuItem(
+                            value: v,
+                            child: Text(v.isEmpty ? '全部' : v),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (v) {
+                      setState(() {
+                        loader = v!;
+                        page = 0;
+                      });
+                      load();
+                    },
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+          ],
           if (loading) const LinearProgressIndicator(),
           Expanded(
             child: error != null
@@ -793,6 +819,7 @@ class _ResourceBrowserState extends State<ResourceBrowser> {
                 : rows.isEmpty && !loading
                 ? const EmptyState('没有匹配资源', '试试其他关键词、版本、加载器或资源平台。')
                 : Card(
+                    key: const ValueKey('resource-results'),
                     child: ListView.separated(
                       itemCount: rows.length,
                       separatorBuilder: (_, _) =>
@@ -801,8 +828,8 @@ class _ResourceBrowserState extends State<ResourceBrowser> {
                         final r = rows[i];
                         return ListTile(
                           contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 20,
-                            vertical: 12,
+                            horizontal: 14,
+                            vertical: 5,
                           ),
                           leading: Container(
                             width: 40,
@@ -827,14 +854,14 @@ class _ResourceBrowserState extends State<ResourceBrowser> {
                           subtitle: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const SizedBox(height: 6),
+                              const SizedBox(height: 3),
                               Text(
                                 r['description'] ?? '',
-                                maxLines: 2,
+                                maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(fontSize: 12),
                               ),
-                              const SizedBox(height: 8),
+                              const SizedBox(height: 3),
                               Text(
                                 '${r['author']}  ·  ${bytesLabel((r['downloads'] as num?) ?? 0).replaceAll(' B', '').replaceAll('KB', '千次').replaceAll('MB', '百万次')} 下载',
                                 style: Theme.of(context).textTheme.bodySmall,

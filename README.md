@@ -23,7 +23,9 @@ flutter run -d windows
 ./scripts/build-windows.ps1
 ```
 
-发布包：`orther/releases/MC-Download-Windows-x64.zip`，需分发整个目录。
+发布文件：`orther/releases/MC Download.exe`，单文件分发，无需安装。首次启动自动释放运行依赖到旁边的 `.mcdownload/runtime/`，以后复用。GitHub Actions 的 `MC-Download-Windows-x64` artifact 中包含该 EXE。
+
+便携启动器使用原生 Windows API 和静态 C++ 运行库，不要求额外安装 .NET。构建时使用 Windows 自带的 makecab 和 Visual Studio 的 CMake；`./scripts/test-portable.ps1` 验证解压、缓存、并发启动和版本更新。
 
 ```sh
 flutter analyze
@@ -34,7 +36,7 @@ Windows 构建与系统代理仍需实机验证。开发缓存和验证产物放
 
 ## 数据
 
-设置、任务、日志和缓存统一位于程序同级的 `.mcdownload/`，便于携带和删除，不再使用 AppData。删除该目录可重置工具数据，不会删除所选的游戏目录。macOS 开发运行时位于项目当前目录的 `.mcdownload/`。版本替换及移除的备份保留在游戏目录内的 `.mcd-trash/`。代理凭据和 CurseForge Key 保存在本机配置中。
+设置、任务、日志和缓存统一位于程序同级的 `.mcdownload/`，便于携带和删除，不再使用 AppData。删除该目录可重置工具数据，不会删除所选的游戏目录。仅删除 `.mcdownload/runtime/` 可让下次启动重新释放运行依赖，同时保留设置。请在应用退出后清理。macOS 开发运行时位于项目当前目录的 `.mcdownload/`。版本替换及移除的备份保留在游戏目录内的 `.mcd-trash/`。代理凭据和 CurseForge Key 保存在本机配置中。
 
 ## Thanks
 

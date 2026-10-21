@@ -112,6 +112,43 @@ void main() {
     },
   );
 
+  test(
+    'extracted runtime keeps data beside the outer portable launcher',
+    () async {
+      final home = p.join(temp.path, 'MC Download', '.mcdownload');
+      final executable = p.join(
+        home,
+        'runtime',
+        'payload-hash',
+        'mc_download.exe',
+      );
+      expect(
+        await applicationDataDirectory(
+          executablePath: executable,
+          workingDirectory: p.join(temp.path, 'unrelated'),
+          windows: true,
+          environment: {'MCD_PORTABLE_DATA': home},
+        ),
+        home,
+      );
+      await expectLater(
+        applicationDataDirectory(
+          windows: true,
+          environment: {'MCD_PORTABLE_DATA': 'relative-path'},
+        ),
+        throwsFormatException,
+      );
+      expect(
+        await applicationDataDirectory(
+          workingDirectory: temp.path,
+          windows: false,
+          environment: {'MCD_PORTABLE_DATA': home},
+        ),
+        p.join(temp.path, '.mcdownload'),
+      );
+    },
+  );
+
   test('development data stays in the project working directory', () async {
     expect(
       await applicationDataDirectory(

@@ -25,8 +25,7 @@ foreach ($dll in 'msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll') {
     Copy-Item (Join-Path $crt.FullName $dll) -Destination $release
 }
 Copy-Item LICENSE, README.md -Destination $release
-$output = Join-Path $PWD 'orther\releases\MC-Download-Windows-x64.zip'
-New-Item -ItemType Directory -Force -Path (Split-Path $output -Parent) | Out-Null
-Compress-Archive -Path (Join-Path $release '*') -DestinationPath $output -Force
+$output = Join-Path $PWD 'orther\releases\MC Download.exe'
+& (Join-Path $PSScriptRoot 'package-portable.ps1') -RuntimeDirectory $release -OutputFile $output
 & (Join-Path $PSScriptRoot 'clean-workspace.ps1')
 Write-Host "Built: $output"

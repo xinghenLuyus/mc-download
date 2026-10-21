@@ -42,8 +42,8 @@ class _AppShellState extends State<AppShell> {
       body: Column(
         children: [
           Container(
-            height: 76,
-            padding: const EdgeInsets.symmetric(horizontal: 26),
+            height: 58,
+            padding: const EdgeInsets.symmetric(horizontal: 18),
             color: Theme.of(context).cardTheme.color,
             child: Row(
               children: [
@@ -67,7 +67,7 @@ class _AppShellState extends State<AppShell> {
                 ),
                 const SizedBox(width: 10),
                 smallChip(context, 'Windows'),
-                const SizedBox(width: 36),
+                const SizedBox(width: 22),
                 for (final (index, label, icon) in [
                   (0, '下载', Icons.download_outlined),
                   (1, '版本管理', Icons.grid_view_outlined),
@@ -89,8 +89,8 @@ class _AppShellState extends State<AppShell> {
                             ? scheme.primary.withValues(alpha: .08)
                             : null,
                         padding: const EdgeInsets.symmetric(
-                          horizontal: 18,
-                          vertical: 17,
+                          horizontal: 14,
+                          vertical: 10,
                         ),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(8),
@@ -126,14 +126,14 @@ class _AppShellState extends State<AppShell> {
             child: Row(
               children: [
                 SizedBox(
-                  width: 204,
+                  width: 164,
                   child: Material(
                     color: Theme.of(context).cardTheme.color,
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Padding(
-                          padding: const EdgeInsets.fromLTRB(20, 24, 20, 8),
+                          padding: const EdgeInsets.fromLTRB(16, 16, 16, 6),
                           child: Text(
                             page == 0
                                 ? '下载内容'
@@ -148,8 +148,8 @@ class _AppShellState extends State<AppShell> {
                           for (final (id, label, icon) in categories)
                             Padding(
                               padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 3,
+                                horizontal: 8,
+                                vertical: 1,
                               ),
                               child: ListTile(
                                 dense: true,
@@ -235,8 +235,8 @@ class _AppShellState extends State<AppShell> {
                   child: Column(
                     children: [
                       Container(
-                        height: 58,
-                        padding: const EdgeInsets.symmetric(horizontal: 28),
+                        height: 44,
+                        padding: const EdgeInsets.symmetric(horizontal: 18),
                         child: Row(
                           children: [
                             Icon(

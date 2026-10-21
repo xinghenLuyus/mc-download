@@ -11,6 +11,8 @@ import 'package:mc_download/main.dart';
 import 'package:mc_download/core/discovery.dart';
 import 'package:mc_download/ui/directory_dialog.dart';
 import 'package:mc_download/ui/settings_page.dart';
+import 'package:mc_download/core/java_runtime.dart';
+import 'package:mc_download/core/resources.dart';
 
 class ControlledDiscovery extends GameDirectoryDiscovery {
   Future<List<GameDirectoryCandidate>>? result;
@@ -18,6 +20,28 @@ class ControlledDiscovery extends GameDirectoryDiscovery {
   Future<List<GameDirectoryCandidate>> defaults({
     String? executableDirectory,
   }) => result ?? Future.value([]);
+}
+
+class FixtureResources extends ResourceService {
+  FixtureResources(super.network);
+  @override
+  Future<List<Json>> search({
+    required String provider,
+    required String kind,
+    String query = '',
+    String game = '',
+    String loader = '',
+    int page = 0,
+  }) async => List.generate(
+    20,
+    (i) => {
+      'id': '$i',
+      'title': 'Resource $i',
+      'description': 'Resource description',
+      'author': 'Author',
+      'downloads': 1000,
+    },
+  );
 }
 
 void main() {
@@ -41,7 +65,11 @@ void main() {
         await loader.load();
       }
       dir = await Directory.systemTemp.createTemp('mcd-shell-');
-      state = AppState(dir.path, discovery: ControlledDiscovery());
+      state = AppState(
+        dir.path,
+        discovery: ControlledDiscovery(),
+        javaDiscovery: () async => [],
+      );
       await state.initialize(remote: false);
     });
     state.remoteVersions =
@@ -131,7 +159,11 @@ void main() {
       late AppState state;
       await tester.runAsync(() async {
         directory = await Directory.systemTemp.createTemp('mcd-pending-scan-');
-        state = AppState(directory.path, discovery: discovery);
+        state = AppState(
+          directory.path,
+          discovery: discovery,
+          javaDiscovery: () async => [],
+        );
         await state.initialize(remote: false);
       });
       final pending = Completer<List<GameDirectoryCandidate>>();
@@ -172,7 +204,11 @@ void main() {
       late AppState state;
       await tester.runAsync(() async {
         directory = await Directory.systemTemp.createTemp('mcd-key-settings-');
-        state = AppState(directory.path, discovery: ControlledDiscovery());
+        state = AppState(
+          directory.path,
+          discovery: ControlledDiscovery(),
+          javaDiscovery: () async => [],
+        );
         await state.initialize(remote: false);
       });
       await tester.pumpWidget(
@@ -218,7 +254,11 @@ void main() {
     late AppState state;
     await tester.runAsync(() async {
       directory = await Directory.systemTemp.createTemp('mcd-key-navigation-');
-      state = AppState(directory.path, discovery: ControlledDiscovery());
+      state = AppState(
+        directory.path,
+        discovery: ControlledDiscovery(),
+        javaDiscovery: () async => [],
+      );
       await state.initialize(remote: false);
     });
     await tester.pumpWidget(DownloadApp(state: state));
@@ -242,4 +282,148 @@ void main() {
       await directory.delete(recursive: true);
     });
   }, variant: TargetPlatformVariant.only(TargetPlatform.windows));
+  testWidgets(
+    'Java dropdown scans automatically and saves explicit or automatic selection',
+    (tester) async {
+      tester.view.physicalSize = const Size(1120, 720);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      late Directory directory;
+      late AppState state;
+      var scans = 0;
+      await tester.runAsync(() async {
+        directory = await Directory.systemTemp.createTemp('mcd-java-settings-');
+        state = AppState(
+          directory.path,
+          discovery: ControlledDiscovery(),
+          javaDiscovery: () async {
+            scans++;
+            return const [
+              JavaRuntime('C:/Java/17/bin/java.exe', '17.0.14', 17),
+              JavaRuntime('C:/Java/21/bin/java.exe', '21.0.6', 21),
+            ];
+          },
+        );
+        await state.initialize(remote: false);
+      });
+      await tester.pumpWidget(DownloadApp(state: state));
+      await tester.tap(find.text('设置'));
+      await tester.pumpAndSettle();
+      expect(scans, 1);
+      final dropdown = find.byType(DropdownButtonFormField<String>);
+      await tester.scrollUntilVisible(
+        dropdown,
+        350,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(dropdown);
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Java 17.0.14').hitTestable(), findsOneWidget);
+      expect(find.textContaining('Java 21.0.6').hitTestable(), findsOneWidget);
+      await tester.tap(find.textContaining('Java 21.0.6').last);
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('保存设置'));
+      await tester.runAsync(() async {
+        await tester.tap(find.text('保存设置'));
+        await state.save();
+      });
+      await tester.pumpAndSettle();
+      expect(state.settings.javaPath, 'C:/Java/21/bin/java.exe');
+      await tester.scrollUntilVisible(
+        dropdown,
+        350,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(dropdown);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('自动选择（推荐）').last);
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('保存设置'));
+      await tester.runAsync(() async {
+        await tester.tap(find.text('保存设置'));
+        await state.save();
+      });
+      await tester.pumpAndSettle();
+      expect(state.settings.javaPath, 'auto');
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.runAsync(() async {
+        await state.save();
+        state.dispose();
+        await directory.delete(recursive: true);
+      });
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.windows),
+  );
+
+  testWidgets(
+    'resource results retain most of the window and filters remain accessible',
+    (tester) async {
+      tester.view.physicalSize = const Size(1120, 720);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      late Directory directory;
+      late AppState state;
+      await tester.runAsync(() async {
+        directory = await Directory.systemTemp.createTemp(
+          'mcd-resource-layout-',
+        );
+        state = AppState(
+          directory.path,
+          discovery: ControlledDiscovery(),
+          javaDiscovery: () async => [],
+        );
+        await state.initialize(remote: false);
+        state.resources = FixtureResources(state.network);
+      });
+      final preview = GlobalKey();
+      await tester.pumpWidget(
+        RepaintBoundary(
+          key: preview,
+          child: DownloadApp(state: state),
+        ),
+      );
+      await tester.tap(find.text('整合包'));
+      await tester.pumpAndSettle();
+      final results = find.byKey(const ValueKey('resource-results'));
+      expect(tester.getSize(results).height, greaterThan(360));
+      expect(find.text('Resource 3').hitTestable(), findsOneWidget);
+      final toggle = find.byKey(const ValueKey('resource-filter-toggle'));
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+      expect(find.text('目标版本'), findsOneWidget);
+      expect(find.text('加载器'), findsOneWidget);
+      expect(tester.getSize(results).height, greaterThan(300));
+      expect(tester.takeException(), isNull);
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+      tester.view.physicalSize = const Size(1280, 800);
+      await tester.pumpAndSettle();
+      expect(tester.getSize(results).height, greaterThan(440));
+      if (Platform.environment['MCD_PREVIEW'] == '1') {
+        await tester.runAsync(() async {
+          final boundary =
+              preview.currentContext!.findRenderObject()!
+                  as RenderRepaintBoundary;
+          final picture = await boundary.toImage();
+          final bytes = await picture.toByteData(
+            format: ui.ImageByteFormat.png,
+          );
+          await Directory('orther/previews').create(recursive: true);
+          await File(
+            'orther/previews/resource-preview.png',
+          ).writeAsBytes(bytes!.buffer.asUint8List());
+        });
+      }
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.runAsync(() async {
+        await state.save();
+        state.dispose();
+        await directory.delete(recursive: true);
+      });
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.windows),
+  );
 }

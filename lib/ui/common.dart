@@ -121,10 +121,17 @@ Future<void> addRoot(BuildContext context, AppState state) async {
 class SectionHeading extends StatelessWidget {
   final String title, subtitle;
   final Widget? trailing;
-  const SectionHeading(this.title, this.subtitle, {super.key, this.trailing});
+  final bool compact;
+  const SectionHeading(
+    this.title,
+    this.subtitle, {
+    super.key,
+    this.trailing,
+    this.compact = false,
+  });
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(bottom: 24),
+    padding: EdgeInsets.only(bottom: compact ? 10 : 24),
     child: Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
@@ -134,12 +141,12 @@ class SectionHeading extends StatelessWidget {
             children: [
               Text(
                 title,
-                style: const TextStyle(
-                  fontSize: 25,
+                style: TextStyle(
+                  fontSize: compact ? 20 : 25,
                   fontWeight: FontWeight.w700,
                 ),
               ),
-              const SizedBox(height: 7),
+              SizedBox(height: compact ? 2 : 7),
               Text(
                 subtitle,
                 style: TextStyle(

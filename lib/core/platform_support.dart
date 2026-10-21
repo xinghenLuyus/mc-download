@@ -7,8 +7,17 @@ Future<String> applicationDataDirectory({
   String? executablePath,
   String? workingDirectory,
   bool? windows,
+  Map<String, String>? environment,
 }) async {
-  final base = (windows ?? Platform.isWindows)
+  final isWindows = windows ?? Platform.isWindows;
+  final portable = (environment ?? Platform.environment)['MCD_PORTABLE_DATA'];
+  if (isWindows && portable != null && portable.isNotEmpty) {
+    if (!p.isAbsolute(portable)) {
+      throw const FormatException('便携数据目录必须使用绝对路径');
+    }
+    return p.normalize(portable);
+  }
+  final base = isWindows
       ? p.dirname(executablePath ?? Platform.resolvedExecutable)
       : workingDirectory ?? Directory.current.path;
   return p.normalize(p.absolute(p.join(base, '.mcdownload')));

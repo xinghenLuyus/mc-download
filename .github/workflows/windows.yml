@@ -18,9 +18,13 @@ jobs:
       - run: flutter analyze
       - name: Run regression tests
         run: flutter test --no-pub --reporter expanded
+      - name: Verify portable launcher
+        run: ./scripts/test-portable.ps1
+        shell: pwsh
       - run: ./scripts/build-windows.ps1 -SkipChecks
         shell: pwsh
       - uses: actions/upload-artifact@v4
         with:
           name: MC-Download-Windows-x64
-          path: orther/releases/MC-Download-Windows-x64.zip
+          path: orther/releases/MC Download.exe
+          if-no-files-found: error

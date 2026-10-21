@@ -1,0 +1,6 @@
+#pragma code_page(65001)
+// Payload @MCD_PAYLOAD_ID@
+#include <windows.h>
+101 RCDATA "@MCD_CAB_PATH@"
+102 RCDATA "@MCD_MANIFEST_PATH@"
+1 ICON "@CMAKE_CURRENT_SOURCE_DIR@/../runner/resources/app_icon.ico"

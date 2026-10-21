@@ -37,11 +37,16 @@ class _SettingsPageState extends State<SettingsPage> {
   late double concurrency = widget.state.settings.concurrency.toDouble();
   bool testing = false, checkingKey = false, keyVisible = false;
   String? keyResult;
+  List<JavaRuntime> runtimes = [];
+  bool scanningJava = false;
+  String? javaScanError;
   final List<String> diagnostics = [];
   AppState get s => widget.state;
   @override
   void initState() {
     super.initState();
+    if (automaticJava(java.text)) java.text = 'auto';
+    scanJava();
     if (widget.focusCurseForge) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         final target = curseForgeSection.currentContext;
@@ -52,6 +57,21 @@ class _SettingsPageState extends State<SettingsPage> {
           );
         }
       });
+    }
+  }
+
+  Future<void> scanJava() async {
+    setState(() {
+      scanningJava = true;
+      javaScanError = null;
+    });
+    try {
+      final found = await s.installedJava();
+      if (mounted) setState(() => runtimes = found);
+    } catch (e) {
+      if (mounted) setState(() => javaScanError = '$e');
+    } finally {
+      if (mounted) setState(() => scanningJava = false);
     }
   }
 
@@ -365,14 +385,46 @@ class _SettingsPageState extends State<SettingsPage> {
           Row(
             children: [
               Expanded(
-                child: TextField(
-                  controller: java,
+                child: DropdownButtonFormField<String>(
+                  key: ValueKey('java:${java.text}:${runtimes.length}'),
+                  initialValue: java.text,
+                  isExpanded: true,
+                  menuMaxHeight: 360,
                   decoration: const InputDecoration(
-                    labelText: 'Java 可执行文件',
-                    hintText: r'C:\Program Files\Java\jdk-21\bin\java.exe',
-                    helperText:
-                        'Forge / NeoForge / OptiFine 安装时使用。java 表示从 PATH 查找。',
+                    labelText: '安装使用的 Java',
+                    helperText: '自动选择会按安装处理器的版本要求选择兼容的 Java。',
+                    helperMaxLines: 2,
                   ),
+                  items: [
+                    const DropdownMenuItem(
+                      value: 'auto',
+                      child: Text('自动选择（推荐）'),
+                    ),
+                    for (final runtime in runtimes)
+                      DropdownMenuItem(
+                        value: runtime.executable,
+                        child: Tooltip(
+                          message: runtime.executable,
+                          child: Text(
+                            'Java ${runtime.version} · ${runtime.executable}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ),
+                    if (java.text != 'auto' &&
+                        !runtimes.any((r) => r.executable == java.text))
+                      DropdownMenuItem(
+                        value: java.text,
+                        child: Text(
+                          '手动指定 · ${java.text}',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) setState(() => java.text = value);
+                  },
                 ),
               ),
               const SizedBox(width: 12),
@@ -381,51 +433,55 @@ class _SettingsPageState extends State<SettingsPage> {
                   final result = await FilePicker.platform.pickFiles(
                     dialogTitle: '选择 java.exe',
                   );
-                  if (result != null) java.text = result.files.single.path!;
+                  final path = result?.files.single.path;
+                  if (path == null) return;
+                  final runtime = await inspectJava(path);
+                  if (!mounted) return;
+                  setState(() {
+                    runtimes.removeWhere(
+                      (r) => r.executable == runtime.executable,
+                    );
+                    runtimes.add(runtime);
+                    java.text = runtime.executable;
+                  });
                 }),
                 child: const Text('选择文件'),
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          OutlinedButton(
-            onPressed: () => action(context, () async {
-              final runtimes = await discoverJava(gameRoots: s.settings.roots);
-              if (!context.mounted) return;
-              if (runtimes.isEmpty) {
-                throw StateError('未找到可用 Java，可选择 java.exe 或通过下方官方链接安装。');
-              }
-              final selected = await showDialog<JavaRuntime>(
-                context: context,
-                builder: (context) => SimpleDialog(
-                  title: const Text('选择已安装的 Java'),
-                  children: [
-                    for (final runtime in runtimes)
-                      SimpleDialogOption(
-                        onPressed: () => Navigator.pop(context, runtime),
-                        child: Text(
-                          'Java ${runtime.version}\n${runtime.executable}',
-                        ),
-                      ),
-                  ],
-                ),
-              );
-              if (selected != null) java.text = selected.executable;
-            }),
-            child: const Text('查找已安装的 Java'),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Text(
+                scanningJava
+                    ? '正在扫描已安装的 Java…'
+                    : '已找到 ${runtimes.length} 个 Java',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              TextButton.icon(
+                onPressed: scanningJava ? null : scanJava,
+                icon: const Icon(Icons.refresh, size: 16),
+                label: const Text('刷新扫描'),
+              ),
+              TextButton(
+                onPressed: () => action(context, () async {
+                  final result = automaticJava(java.text)
+                      ? selectJava(await s.installedJava())
+                      : await inspectJava(java.text);
+                  if (context.mounted) {
+                    await showLog(context, 'Java 检测', [
+                      'Java ${result.version}',
+                      result.executable,
+                    ]);
+                  }
+                }),
+                child: const Text('检测 Java'),
+              ),
+            ],
           ),
-          TextButton(
-            onPressed: () => action(context, () async {
-              final result = await inspectJava(java.text.trim());
-              if (context.mounted) {
-                await showLog(context, 'Java 检测', [
-                  'Java ${result.version}',
-                  result.executable,
-                ]);
-              }
-            }),
-            child: const Text('检测 Java'),
-          ),
+          if (javaScanError != null) Text(javaScanError!),
           TextButton(
             onPressed: () => action(
               context,

@@ -3,17 +3,21 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:math' as math;
 import 'package:archive/archive.dart';
 import 'package:path/path.dart' as p;
 import 'models.dart';
 import 'network.dart';
 import 'repository.dart';
+import 'java_runtime.dart';
 
 class MinecraftInstaller {
   final NetworkService network;
   final String cache;
   MinecraftInstaller(this.network, this.cache);
   List<GameVersion> versions = [];
+  Future<List<JavaRuntime>>? _javaRuntimes;
+  String? _javaJobId;
   Future<List<GameVersion>> fetchVersions() async {
     final j = asMap(
       await network.json(network.sources.candidates(SourcePolicy.manifest)),
@@ -830,6 +834,11 @@ class MinecraftInstaller {
             ['-cp', classpath, main, ...args],
             job,
             workingDirectory: work,
+            minimumJava: math.max(
+              _classJava(jarArchive, main),
+              (asMap(base['javaVersion'])['majorVersion'] as num?)?.toInt() ??
+                  8,
+            ),
           );
         }
         for (final entry in outputs.entries) {
@@ -875,14 +884,11 @@ class MinecraftInstaller {
     await guardPath(spec.root, output);
     await File(output).parent.create(recursive: true);
     if (archive.findFile('optifine/Patcher.class') != null) {
-      await runJava([
-        '-cp',
-        jar,
-        'optifine.Patcher',
-        clientJar,
-        jar,
-        output,
-      ], job);
+      await runJava(
+        ['-cp', jar, 'optifine.Patcher', clientJar, jar, output],
+        job,
+        minimumJava: _classJava(archive, 'optifine.Patcher'),
+      );
     } else {
       await File(jar).copy(output);
     }
@@ -943,16 +949,40 @@ class MinecraftInstaller {
     }
   }
 
+  int _classJava(Archive archive, String main) {
+    final file = archive.findFile('${main.replaceAll('.', '/')}.class');
+    if (file == null) return 8;
+    final bytes = file.content;
+    if (bytes.length < 8) return 8;
+    return ((bytes[6] << 8) | bytes[7]) - 44;
+  }
+
   Future<void> runJava(
     List<String> args,
     DownloadJob job, {
     String? workingDirectory,
+    int minimumJava = 8,
   }) async {
+    job.check();
+    var executable = network.settings.javaPath;
+    if (automaticJava(executable)) {
+      if (_javaJobId != job.id) {
+        _javaRuntimes = null;
+        _javaJobId = job.id;
+      }
+      final runtimes = await (_javaRuntimes ??= discoverJava(
+        gameRoots: network.settings.roots,
+      ));
+      if (runtimes.isEmpty) _javaRuntimes = null;
+      final runtime = selectJava(runtimes, minimumMajor: minimumJava);
+      executable = runtime.executable;
+      job.log('自动选择 Java ${runtime.version}：$executable');
+    }
     job.check();
     late Process process;
     try {
       process = await Process.start(
-        network.settings.javaPath,
+        executable,
         args,
         workingDirectory: workingDirectory,
         runInShell: false,
