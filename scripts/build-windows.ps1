@@ -1,4 +1,4 @@
-param([switch]$SkipChecks, [string]$Version = 'dev', [switch]$EmbedCurseForgeKey)
+param([switch]$SkipChecks, [switch]$NoPub, [string]$Version = 'dev', [switch]$EmbedCurseForgeKey)
 $ErrorActionPreference = 'Stop'
 Set-Location (Join-Path $PSScriptRoot '..')
 $versionInfo = & (Join-Path $PSScriptRoot 'build-version.ps1') -Version $Version
@@ -13,9 +13,9 @@ function Invoke-Flutter {
     & flutter @args
     if ($LASTEXITCODE -ne 0) { throw "flutter failed with exit code $LASTEXITCODE" }
 }
-Invoke-Flutter pub get
+if (-not $NoPub) { Invoke-Flutter pub get }
 if (-not $SkipChecks) {
-    Invoke-Flutter analyze
+    Invoke-Flutter analyze --no-pub
     & (Join-Path $PSScriptRoot 'test-system-proxy.ps1')
     Invoke-Flutter test --no-pub
 }
@@ -24,7 +24,7 @@ $previousVersion = $env:MCD_APP_VERSION
 try {
     $env:MCD_APP_VERSION = $versionInfo.Label
     $defines = @{ MC_DOWNLOAD_VERSION = $versionInfo.Label }
-    $arguments = @('build', 'windows', '--release', "--build-name=$($versionInfo.BuildName)", '--build-number=0', "--dart-define-from-file=$defineFile")
+    $arguments = @('build', 'windows', '--release', '--no-pub', "--build-name=$($versionInfo.BuildName)", '--build-number=0', "--dart-define-from-file=$defineFile")
     if ($EmbedCurseForgeKey) {
         $bytes = [Text.Encoding]::UTF8.GetBytes($credential)
         $pad = [byte[]]::new($bytes.Length)

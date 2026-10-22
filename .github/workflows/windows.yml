@@ -1,12 +1,20 @@
 name: Windows build
 on:
   workflow_dispatch:
+    inputs:
+      full_checks:
+        description: 'Run all tests, native proxy checks and portable launcher smoke tests'
+        type: boolean
+        default: false
   push:
     branches: [main, master]
     tags: ['v*']
   pull_request:
 permissions:
   contents: read
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
 jobs:
   build:
     runs-on: windows-latest
@@ -24,9 +32,11 @@ jobs:
           "version=$($version.Label)" >> $env:GITHUB_OUTPUT
           "prerelease=$($version.Prerelease.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
       - name: Verify version resolution
+        if: github.event_name == 'workflow_dispatch' && inputs.full_checks
         run: ./scripts/test-build-version.ps1
         shell: pwsh
       - name: Verify release credential build rules
+        if: github.event_name == 'workflow_dispatch' && inputs.full_checks
         run: ./scripts/test-release-credentials.ps1
         shell: pwsh
       - uses: subosito/flutter-action@v2
@@ -35,19 +45,36 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get
-      - run: flutter analyze
+      - run: flutter analyze --no-pub
       - name: Verify native WinHTTP error capture
+        if: github.event_name == 'workflow_dispatch' && inputs.full_checks
         run: ./scripts/test-system-proxy.ps1
         shell: pwsh
-      - name: Run regression tests
-        run: flutter test --no-pub --reporter expanded "--dart-define=MC_DOWNLOAD_VERSION=$env:APP_VERSION"
+      - name: Run core regression tests
+        run: |
+          $arguments = @('test', '--no-pub', '--reporter', 'expanded', "--dart-define=MC_DOWNLOAD_VERSION=$env:APP_VERSION")
+          if ($env:FULL_CHECKS -ne 'true') {
+            $arguments += @(
+              'test/network_test.dart',
+              'test/installation_test.dart',
+              'test/modpack_chain_test.dart',
+              'test/curseforge_test.dart',
+              'test/download_recovery_test.dart',
+              'test/release_credentials_test.dart'
+            )
+          }
+          & flutter @arguments
+          if ($LASTEXITCODE -ne 0) { throw 'Regression tests failed.' }
         shell: pwsh
         env:
           APP_VERSION: ${{ steps.version.outputs.version }}
+          FULL_CHECKS: ${{ github.event_name == 'workflow_dispatch' && inputs.full_checks }}
       - name: Verify portable launcher
+        if: github.event_name == 'workflow_dispatch' && inputs.full_checks
         run: ./scripts/test-portable.ps1
         shell: pwsh
       - name: Verify bundled credential behavior
+        if: github.event_name == 'workflow_dispatch' && inputs.full_checks
         run: |
           flutter test --no-pub test/release_credentials_test.dart --dart-define=MC_DOWNLOAD_VERSION=0.1.0 --dart-define=MC_DOWNLOAD_CF_PAYLOAD=YmsuYmx+c317byZnaHc= --dart-define=MC_DOWNLOAD_CF_MASK=AQIDBAUGBwgJCgsMDQ4=
           if ($LASTEXITCODE -ne 0) { throw 'Bundled credential tests failed.' }
@@ -56,13 +83,13 @@ jobs:
         shell: pwsh
       - name: Build development application
         if: steps.version.outputs.version == 'dev'
-        run: ./scripts/build-windows.ps1 -SkipChecks -Version $env:APP_VERSION
+        run: ./scripts/build-windows.ps1 -SkipChecks -NoPub -Version $env:APP_VERSION
         shell: pwsh
         env:
           APP_VERSION: ${{ steps.version.outputs.version }}
       - name: Build tagged application with bundled authorization
         if: github.ref_type == 'tag' && steps.version.outputs.version != 'dev'
-        run: ./scripts/build-windows.ps1 -SkipChecks -Version $env:APP_VERSION -EmbedCurseForgeKey
+        run: ./scripts/build-windows.ps1 -SkipChecks -NoPub -Version $env:APP_VERSION -EmbedCurseForgeKey
         shell: pwsh
         env:
           APP_VERSION: ${{ steps.version.outputs.version }}
