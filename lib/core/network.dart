@@ -88,7 +88,7 @@ class NetworkService {
   SourcePolicy get sources => SourcePolicy(settings);
 
   String requireCurseForgeKey() {
-    final key = settings.curseKey.trim();
+    final key = settings.effectiveCurseKey.trim();
     if (key.isEmpty) {
       throw const CurseForgeAccessException(
         '请先在“设置 → CurseForge”填写并保存 API Key，再进行 CurseForge 查询或下载；设置页提供申请指引。',
@@ -137,14 +137,18 @@ class NetworkService {
   void checkCurseForgeStatus(Uri uri, int status) {
     if (!isCurseForgeEndpoint(uri)) return;
     if (status == 401) {
-      throw const CurseForgeAccessException(
-        'CurseForge 鉴权失败（401）：API Key 无效、已失效或未获授权，请在设置中检查 Key 并重新验证。',
+      throw CurseForgeAccessException(
+        settings.usesBundledCurseForgeKey
+            ? 'CurseForge 鉴权失败（401）：此发行版的内置授权已失效或未获权限，请更新 MC Download 或向项目反馈。'
+            : 'CurseForge 鉴权失败（401）：API Key 无效、已失效或未获授权，请在设置中检查 Key 并重新验证。',
         statusCode: 401,
       );
     }
     if (status == 403) {
-      throw const CurseForgeAccessException(
-        'CurseForge 拒绝访问（403）：请检查 API Key 的权限；作者限制第三方下载的文件需在官网手动获取后导入。',
+      throw CurseForgeAccessException(
+        settings.usesBundledCurseForgeKey
+            ? 'CurseForge 拒绝访问（403）：内置授权或文件访问受限；可重试或从官网手动获取文件后导入。'
+            : 'CurseForge 拒绝访问（403）：请检查 API Key 的权限；作者限制第三方下载的文件需在官网手动获取后导入。',
         statusCode: 403,
       );
     }

@@ -580,10 +580,11 @@ class _ResourceBrowserState extends State<ResourceBrowser> {
         setState(() {
           error = '$e';
           configureKey =
-              e is CurseForgeAccessException ||
-              (widget.kind == 'world' &&
-                  provider == 'Modrinth' &&
-                  s.settings.curseKey.trim().isEmpty);
+              !s.settings.usesBundledCurseForgeKey &&
+              (e is CurseForgeAccessException ||
+                  (widget.kind == 'world' &&
+                      provider == 'Modrinth' &&
+                      s.settings.effectiveCurseKey.trim().isEmpty));
           rows = [];
         });
       }

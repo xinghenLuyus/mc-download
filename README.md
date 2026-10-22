@@ -15,7 +15,7 @@ Windows Minecraft Java 版下载与 `.minecraft` 管理工具，使用 Flutter �
 
 应用数据保存在程序旁的 `.mcdownload/`；退出后删除即可重置，不会删除游戏目录。
 
-CurseForge 需在设置中配置自己的 API Key；Forge / NeoForge / OptiFine 安装需要合适的 Java。暂不支持组合加载器、自定义补丁及部分历史整合包。
+发行版已内置 CurseForge 授权时无需填写 Key，DEV 版需在设置中配置自己的 API Key；Forge / NeoForge / OptiFine 安装需要合适的 Java。暂不支持组合加载器、自定义补丁及部分历史整合包。
 
 ## 构建
 

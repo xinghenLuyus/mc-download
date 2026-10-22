@@ -121,7 +121,9 @@ class _SettingsPageState extends State<SettingsPage> {
     s.settings.fallback = fallback;
     s.settings.concurrency = concurrency.round();
     s.settings.javaPath = java.text.trim();
-    s.settings.curseKey = keyField.text.trim();
+    if (!s.settings.usesBundledCurseForgeKey) {
+      s.settings.curseKey = keyField.text.trim();
+    }
     s.settings.isolate = isolate;
     s.network.clearProxyCache();
     await s.save();
@@ -162,7 +164,7 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> saveCurseForgeKey({bool verify = false}) async {
-    if (checkingKey) return;
+    if (checkingKey || s.settings.usesBundledCurseForgeKey) return;
     await action(context, () async {
       final value = keyField.text.trim();
       if (verify && value.isEmpty) {
@@ -500,96 +502,97 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
         ]),
         const SizedBox(height: 18),
-        section('CurseForge', '查询资源和下载文件都需要先填写并保存自己的 API Key。Modrinth 无需 Key。', [
-          KeyedSubtree(
-            key: curseForgeSection,
-            child: TextField(
-              key: const ValueKey('curseforge-api-key'),
-              enabled: !checkingKey,
-              controller: keyField,
-              obscureText: !keyVisible,
-              onChanged: (_) => setState(() => keyResult = null),
-              decoration: InputDecoration(
-                labelText: 'API Key',
-                helperText:
-                    '保存在 .mcdownload/settings.json，仅发送至 CurseForge 官方 API 和文件 CDN。',
-                helperMaxLines: 3,
-                suffixIcon: IconButton(
-                  tooltip: keyVisible ? '隐藏 Key' : '显示 Key',
-                  onPressed: () => setState(() => keyVisible = !keyVisible),
-                  icon: Icon(
-                    keyVisible
-                        ? Icons.visibility_off_outlined
-                        : Icons.visibility_outlined,
+        if (!s.settings.usesBundledCurseForgeKey)
+          section('CurseForge', '查询资源和下载文件都需要先填写并保存自己的 API Key。Modrinth 无需 Key。', [
+            KeyedSubtree(
+              key: curseForgeSection,
+              child: TextField(
+                key: const ValueKey('curseforge-api-key'),
+                enabled: !checkingKey,
+                controller: keyField,
+                obscureText: !keyVisible,
+                onChanged: (_) => setState(() => keyResult = null),
+                decoration: InputDecoration(
+                  labelText: 'API Key',
+                  helperText:
+                      '保存在 .mcdownload/settings.json，仅发送至 CurseForge 官方 API 和文件 CDN。',
+                  helperMaxLines: 3,
+                  suffixIcon: IconButton(
+                    tooltip: keyVisible ? '隐藏 Key' : '显示 Key',
+                    onPressed: () => setState(() => keyVisible = !keyVisible),
+                    icon: Icon(
+                      keyVisible
+                          ? Icons.visibility_off_outlined
+                          : Icons.visibility_outlined,
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
-          const SizedBox(height: 14),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              OutlinedButton(
-                onPressed: checkingKey ? null : () => saveCurseForgeKey(),
-                child: const Text('保存 Key'),
-              ),
-              FilledButton(
-                onPressed: checkingKey
-                    ? null
-                    : () => saveCurseForgeKey(verify: true),
-                child: Text(checkingKey ? '请稍候…' : '保存并验证 Key'),
-              ),
-            ],
-          ),
-          if (keyResult != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 12),
-              child: InfoStrip(keyResult!),
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                OutlinedButton(
+                  onPressed: checkingKey ? null : () => saveCurseForgeKey(),
+                  child: const Text('保存 Key'),
+                ),
+                FilledButton(
+                  onPressed: checkingKey
+                      ? null
+                      : () => saveCurseForgeKey(verify: true),
+                  child: Text(checkingKey ? '请稍候…' : '保存并验证 Key'),
+                ),
+              ],
             ),
-          const SizedBox(height: 8),
-          const Text(
-            '验证使用已保存的代理设置。若更改了代理，请先点击页面顶部“保存设置”。',
-            style: TextStyle(fontSize: 11),
-          ),
-          const SizedBox(height: 16),
-          const Text(
-            '如何申请 API Key',
-            style: TextStyle(fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            '1. 打开下方“官方申请说明”，进入 How to Apply for an API Key，按页面链接填写第三方开发者申请表。\n2. 准备联系邮箱、项目名称和说明、项目 / GitHub 地址，以及预计如何使用 API；按官方要求确认开发者条款并提交审核。\n3. 审核通过后，按通知或开发者控制台指引获取完整 API Key。Key 不是账号密码，也不是 Mod / 文件 ID；提交申请不会立即获得 Key。\n4. 将 Key 粘贴到上方，点击“保存并验证 Key”；验证通过后返回下载页重新查询。',
-            style: TextStyle(fontSize: 12, height: 1.8),
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              TextButton(
-                onPressed: () => action(
-                  context,
-                  () => openWeb(
-                    'https://support.curseforge.com/support/solutions/articles/9000208346-about-the-curseforge-api-and-how-to-apply-for-a-key',
+            if (keyResult != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: InfoStrip(keyResult!),
+              ),
+            const SizedBox(height: 8),
+            const Text(
+              '验证使用已保存的代理设置。若更改了代理，请先点击页面顶部“保存设置”。',
+              style: TextStyle(fontSize: 11),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              '如何申请 API Key',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              '1. 打开下方“官方申请说明”，进入 How to Apply for an API Key，按页面链接填写第三方开发者申请表。\n2. 准备联系邮箱、项目名称和说明、项目 / GitHub 地址，以及预计如何使用 API；按官方要求确认开发者条款并提交审核。\n3. 审核通过后，按通知或开发者控制台指引获取完整 API Key。Key 不是账号密码，也不是 Mod / 文件 ID；提交申请不会立即获得 Key。\n4. 将 Key 粘贴到上方，点击“保存并验证 Key”；验证通过后返回下载页重新查询。',
+              style: TextStyle(fontSize: 12, height: 1.8),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                TextButton(
+                  onPressed: () => action(
+                    context,
+                    () => openWeb(
+                      'https://support.curseforge.com/support/solutions/articles/9000208346-about-the-curseforge-api-and-how-to-apply-for-a-key',
+                    ),
                   ),
+                  child: const Text('官方申请说明'),
                 ),
-                child: const Text('官方申请说明'),
-              ),
-              TextButton(
-                onPressed: () => action(
-                  context,
-                  () => openWeb('https://console.curseforge.com/'),
+                TextButton(
+                  onPressed: () => action(
+                    context,
+                    () => openWeb('https://console.curseforge.com/'),
+                  ),
+                  child: const Text('开发者控制台'),
                 ),
-                child: const Text('开发者控制台'),
-              ),
-            ],
-          ),
-          const InfoStrip(
-            '未获批或没有 Key 时可使用 Modrinth。Key 无效或权限不足会明确报错；作者禁止第三方下载的文件仍需在官网手动下载后导入。',
-          ),
-        ]),
+              ],
+            ),
+            const InfoStrip(
+              '未获批或没有 Key 时可使用 Modrinth。Key 无效或权限不足会明确报错；作者禁止第三方下载的文件仍需在官网手动下载后导入。',
+            ),
+          ]),
         const SizedBox(height: 18),
         section('游戏目录', '移除记录只取消关联，不删除目录内文件。', [
           SwitchListTile(
@@ -616,6 +619,14 @@ class _SettingsPageState extends State<SettingsPage> {
           '关于 MC Download',
           '由第三方独立制作的 Flutter 下载与文件管理工具，与 PCL / HMCL 官方无关联。',
           [
+            if (s.settings.usesBundledCurseForgeKey)
+              const Padding(
+                padding: EdgeInsets.only(bottom: 8),
+                child: Text(
+                  'CurseForge：使用发行版内置授权',
+                  style: TextStyle(fontSize: 12),
+                ),
+              ),
             const Text(
               'MIT License',
               style: TextStyle(fontWeight: FontWeight.w600),

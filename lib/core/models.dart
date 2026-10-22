@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
+import 'release_credentials.dart';
 
 typedef Json = Map<String, dynamic>;
 Json asMap(dynamic value) =>
@@ -36,8 +37,12 @@ class AppSettings {
   Map<String, bool> rootIsolation = {};
   bool dark = false;
 
+  bool get usesBundledCurseForgeKey => hasBundledCurseForgeKey;
+  String get effectiveCurseKey =>
+      usesBundledCurseForgeKey ? bundledCurseForgeKey : curseKey;
+
   String get defaultResourceProvider =>
-      curseKey.trim().isEmpty ? 'Modrinth' : 'CurseForge';
+      effectiveCurseKey.trim().isEmpty ? 'Modrinth' : 'CurseForge';
 
   bool isolationFor(String root) => rootIsolation[root] ?? isolate;
 
@@ -59,7 +64,7 @@ class AppSettings {
     fallback = j['fallback'] != false;
     concurrency = ((j['concurrency'] as num?)?.toInt() ?? 8).clamp(1, 32);
     javaPath = j['javaPath'] ?? javaPath;
-    curseKey = j['curseKey'] ?? '';
+    curseKey = usesBundledCurseForgeKey ? '' : j['curseKey'] ?? '';
     arch = j['arch'] ?? arch;
     isolate = j['isolate'] != false;
     rootIsolation = {
@@ -80,7 +85,7 @@ class AppSettings {
     'fallback': fallback,
     'concurrency': concurrency,
     'javaPath': javaPath,
-    'curseKey': curseKey,
+    'curseKey': usesBundledCurseForgeKey ? '' : curseKey,
     'arch': arch,
     'isolate': isolate,
     'rootIsolation': rootIsolation,

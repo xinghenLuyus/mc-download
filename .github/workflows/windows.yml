@@ -26,6 +26,9 @@ jobs:
       - name: Verify version resolution
         run: ./scripts/test-build-version.ps1
         shell: pwsh
+      - name: Verify release credential build rules
+        run: ./scripts/test-release-credentials.ps1
+        shell: pwsh
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.47.7'
@@ -44,11 +47,26 @@ jobs:
       - name: Verify portable launcher
         run: ./scripts/test-portable.ps1
         shell: pwsh
-      - name: Build versioned application
+      - name: Verify bundled credential behavior
+        run: |
+          flutter test --no-pub test/release_credentials_test.dart --dart-define=MC_DOWNLOAD_VERSION=0.1.0 --dart-define=MC_DOWNLOAD_CF_PAYLOAD=YmsuYmx+c317byZnaHc= --dart-define=MC_DOWNLOAD_CF_MASK=AQIDBAUGBwgJCgsMDQ4=
+          if ($LASTEXITCODE -ne 0) { throw 'Bundled credential tests failed.' }
+          flutter test --no-pub test/release_credentials_test.dart --dart-define=MC_DOWNLOAD_VERSION=dev --dart-define=MC_DOWNLOAD_CF_PAYLOAD=YmsuYmx+c317byZnaHc= --dart-define=MC_DOWNLOAD_CF_MASK=AQIDBAUGBwgJCgsMDQ4=
+          if ($LASTEXITCODE -ne 0) { throw 'DEV credential isolation tests failed.' }
+        shell: pwsh
+      - name: Build development application
+        if: steps.version.outputs.version == 'dev'
         run: ./scripts/build-windows.ps1 -SkipChecks -Version $env:APP_VERSION
         shell: pwsh
         env:
           APP_VERSION: ${{ steps.version.outputs.version }}
+      - name: Build tagged application with bundled authorization
+        if: github.ref_type == 'tag' && steps.version.outputs.version != 'dev'
+        run: ./scripts/build-windows.ps1 -SkipChecks -Version $env:APP_VERSION -EmbedCurseForgeKey
+        shell: pwsh
+        env:
+          APP_VERSION: ${{ steps.version.outputs.version }}
+          CURSEFORGE_API_KEY: ${{ secrets.CURSEFORGE_API_KEY }}
       - uses: actions/upload-artifact@v4
         with:
           name: MC-Download-${{ steps.version.outputs.version }}-Windows-x64

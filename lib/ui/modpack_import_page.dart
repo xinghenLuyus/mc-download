@@ -324,7 +324,10 @@ class _ModpackImportPageState extends State<ModpackImportPage> {
                             child: InfoStrip(
                               error!,
                               warning: true,
-                              action: needsKey && widget.canConfigureKey
+                              action:
+                                  needsKey &&
+                                      widget.canConfigureKey &&
+                                      !s.settings.usesBundledCurseForgeKey
                                   ? TextButton(
                                       onPressed: () => Navigator.pop(
                                         context,
